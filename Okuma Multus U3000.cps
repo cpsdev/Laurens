@@ -2402,6 +2402,24 @@ function onLinear(_x, _y, _z, feed) {
     linearCode = 101;
   }
   if (x || y || z) {
+    if (false) { // TESTING ONLY, not proven, DANGER !!!
+      if (movement == MOVEMENT_LINK_DIRECT) {
+        if (machineState.usePolarMode || machineState.useXZCMode || machineState.isTurningOperation) {
+          error(localize("POST ERROR"));
+          return;
+        }
+        var startXYZ = getCurrentPosition();
+        var endXYZ = new Vector(_x, _y, _z);
+        var length = Vector.diff(startXYZ, endXYZ).length;
+        var numberOfSegments = Math.max(Math.ceil(length / toPreciseUnit(0.05, MM)), 1);
+        var localTolerance = getTolerance() / 2;
+        for (var i = 1; i <= numberOfSegments; ++i) {
+          var p = Vector.lerp(startXYZ, endXYZ, i * 1.0 / numberOfSegments);
+          writeBlock(gMotionModal.format(linearCode), xOutput.format(p.x), yOutput.format(p.y), zOutput.format(p.z), getFeed(feed));
+        }
+        return;
+      }
+    }
     if (pendingRadiusCompensation >= 0) {
       pendingRadiusCompensation = -1;
       if (machineState.isTurningOperation) {
