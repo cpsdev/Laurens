@@ -27,6 +27,7 @@ todo:
 - check modal feed formats MM/REV MM MIN
 - check G17 for onCyclePoint()
 - check getSpindle(), results look wrong
+- Add G144 in onOpen
 */
 
 description = "Okuma Multus U3000 with OSP-300 control";
