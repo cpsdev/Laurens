@@ -27,7 +27,6 @@ todo:
 - check modal feed formats MM/REV MM MIN
 - check G17 for onCyclePoint()
 - check getSpindle(), results look wrong
-- Add G144 in onOpen
 */
 
 description = "Okuma Multus U3000 with OSP-300 control";
@@ -997,7 +996,14 @@ function setWorkPlane(abc) {
   onCommand(COMMAND_UNLOCK_MULTI_AXIS);
 
   if (!retracted) {
+    if(currentSection.isPatterned()){
+      writeRetract(X);
+    } else {
+
+    if(!stockTransferIsActive){
     writeRetract();
+    }
+  }
     // writeRetract(X);
     // writeRetract(Z);
   }
@@ -1299,7 +1305,7 @@ function onSection() {
   if (!isFirstSection() && insertToolCall &&
       !(stockTransferIsActive && partCutoff)) {
     if (stockTransferIsActive) {
-      writeBlock(gFormat.format(144)); // Wait code to allow for tool Restart function on the machine.
+      //writeBlock(gFormat.format(144)); // Wait code to allow for tool Restart function on the machine.
       writeBlock(mFormat.format(getCode("SPINDLE_SYNCHRONIZATION_OFF", getSpindle(true))), formatComment("SYNCHRONIZED ROTATION OFF"));
     } else {
       if (previousSpindle == SPINDLE_LIVE) {
@@ -1347,7 +1353,9 @@ function onSection() {
 
   if (insertToolCall || newSpindle || newWorkOffset || newWorkPlane && !currentSection.isPatterned()) {
     // retract to safe plane
+    if(!stockTransferIsActive){
     writeRetract();
+  }
     if (properties.optionalStop && !isFirstSection()) {
       onCommand(COMMAND_OPTIONAL_STOP);
       gMotionModal.reset();
@@ -1381,7 +1389,7 @@ function onSection() {
       waitNumber += 10;
       gSelectSpindleModal.reset();
       setCoolant(COOLANT_OFF, machineState.currentTurret);
-    }
+        }
     switch (turret) {
       case 1:
         writeBlock(gFormat.format(13));
@@ -1397,7 +1405,7 @@ function onSection() {
   }
 
   if (insertToolCall) {
-    writeBlock(mFormat.format(331)); // stop look ahead
+  writeBlock(mFormat.format(331)); // stop look ahead
   }
 
   // Select the active spindle
@@ -1575,7 +1583,9 @@ function onSection() {
   }
   
   if (insertToolCall) {
+    if(!stockTransferIsActive){
     writeRetract();
+    }
     gPlaneModal.reset();
     forceWorkPlane();
     cAxisEngageModal.reset();
@@ -1684,7 +1694,9 @@ function onSection() {
         writeBlock("TD=0207" + toolFormat.format(tool.number) + " M323");
       }
     }
+    if(!stockTransferIsActive){
     writeRetract(); // TAG WHY IS THIS NEEDED?
+    }
 
     if (tool.comment) {
       writeComment(tool.comment);
@@ -1744,7 +1756,7 @@ function onSection() {
       }
       var MonitCD = machineState.axialCenterDrilling ? 2 : 0;
       var MonitMill = ((currentSection.getType() == TYPE_MILLING) && !machineState.axialCenterDrilling) ? 19 : 0;
-      writeBlock("VLMON[" + (currentSection.getId() + 1) + "]=" + (MonitTurning1 + MonitTurning2 + MonitCD + MonitMill));
+      //writeBlock("VLMON[" + (currentSection.getId() + 1) + "]=" + (MonitTurning1 + MonitTurning2 + MonitCD + MonitMill));
 
       gPlaneModal.reset();
     // Turn on coolant
@@ -2402,24 +2414,6 @@ function onLinear(_x, _y, _z, feed) {
     linearCode = 101;
   }
   if (x || y || z) {
-    if (false) { // TESTING ONLY, not proven, DANGER !!!
-      if (movement == MOVEMENT_LINK_DIRECT) {
-        if (machineState.usePolarMode || machineState.useXZCMode || machineState.isTurningOperation) {
-          error(localize("POST ERROR"));
-          return;
-        }
-        var startXYZ = getCurrentPosition();
-        var endXYZ = new Vector(_x, _y, _z);
-        var length = Vector.diff(startXYZ, endXYZ).length;
-        var numberOfSegments = Math.max(Math.ceil(length / toPreciseUnit(0.05, MM)), 1);
-        var localTolerance = getTolerance() / 2;
-        for (var i = 1; i <= numberOfSegments; ++i) {
-          var p = Vector.lerp(startXYZ, endXYZ, i * 1.0 / numberOfSegments);
-          writeBlock(gMotionModal.format(linearCode), xOutput.format(p.x), yOutput.format(p.y), zOutput.format(p.z), getFeed(feed));
-        }
-        return;
-      }
-    }
     if (pendingRadiusCompensation >= 0) {
       pendingRadiusCompensation = -1;
       if (machineState.isTurningOperation) {
@@ -2680,13 +2674,19 @@ function onCycle() {
 
     // Start of stock transfer operation(s)
     if (!stockTransferIsActive) {
-      writeRetract();
-      onCommand(COMMAND_OPTIONAL_STOP);
-      //writeBlock(cAxisEnableModal.format(getCode("DISABLE_C_AXIS", getSpindle(true))));
-      writeBlock(gFormat.format(270), "(Turning Mode ON)");
-      yOutput.disable();
-      writeBlock("T100");
-      writeRetract();
+
+      if((getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation-strategy") && getPreviousSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation:goHomeMode") && (getPreviousSection().getParameter("operation:goHomeMode") != "begin end" ))){
+        onCommand(COMMAND_OPTIONAL_STOP);
+        writeBlock(gFormat.format(270), "(Turning Mode ON)");
+      } else {
+        writeRetract();
+        onCommand(COMMAND_OPTIONAL_STOP);
+        //writeBlock(cAxisEnableModal.format(getCode("DISABLE_C_AXIS", getSpindle(true))));
+        writeBlock(gFormat.format(270), "(Turning Mode ON)");
+        yOutput.disable();
+        writeBlock("T100");
+        writeRetract();
+      }
       onCommand(COMMAND_STOP_SPINDLE);
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       writeBlock(gFormat.format(14));
@@ -2694,8 +2694,8 @@ function onCycle() {
       writeBlock(gFormat.format(20), "HP=" + spatialFormat.format(3)); // retract
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       waitNumber += 10;
-      writeBlock(gFormat.format(145)); //Wait code to allow for Tool Restart on the machine
-      writeBlock(gFormat.format(144)); //Wait code to allow for Tool Restart on the machine
+      //writeBlock(gFormat.format(145)); //Wait code to allow for Tool Restart on the machine
+     // writeBlock(gFormat.format(144)); //Wait code to allow for Tool Restart on the machine
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       waitNumber += 10;
       writeBlock(gFormat.format(13));
@@ -2766,6 +2766,7 @@ function onCycle() {
           wOutput.format(properties.homePositionW),
           formatComment("SUB SPINDLE RETURN")
         );
+        onCommand(COMMAND_STOP_SPINDLE);
         writeBlock(mFormat.format(150));
         writeBlock(mFormat.format(807));
         writeBlock(mFormat.format(getCode("INTERNAL_INTERLOCK_OFF", getSpindle(true))), formatComment("MAIN CHUCK INTERLOCK RELEASE OFF"));
@@ -2785,7 +2786,7 @@ function onCycle() {
         engagePartCatcher(true);
       }
       writeBlock(mFormat.format(89), mFormat.format(289));
-      writeBlock(gFormat.format(145)); //Wait code to allow for Tool Restart on the machine
+      //writeBlock(gFormat.format(145)); //Wait code to allow for Tool Restart on the machine
       writeBlock(mFormat.format(getCode("INTERNAL_INTERLOCK_ON", getSecondarySpindle())), formatComment("SUB CHUCK INTERLOCK RELEASE ON"));
       writeBlock(mFormat.format(getCode("INTERNAL_INTERLOCK_ON", getSpindle(true))), formatComment("MAIN CHUCK INTERLOCK RELEASE ON"));
       writeBlock(mFormat.format(getCode("UNCLAMP_CHUCK", getSecondarySpindle())), formatComment("UNCLAMP OPPOSITE SPINDLE"));
@@ -2845,7 +2846,7 @@ function onCycle() {
       var upperZ = getParameter("stock-upper-z");
       writeBlock(gMotionModal.format(0), wOutput.format(cycle.feedPosition));
       writeBlock(mFormat.format(88), mFormat.format(288));
-      writeBlock(mFormat.format(151));
+      //writeBlock(mFormat.format(151));
       writeBlock(mFormat.format(808));
       if (properties.transferUseTorque) {
         writeBlock(gFormat.format(getCode("TORQUE_LIMIT_ON", getSpindle(true))), "PW=" + integerFormat.format(wAxisTorqueUpper));
@@ -3421,7 +3422,7 @@ function onCommand(command) {
     setCoolant(COOLANT_OFF);
     break;
   case COMMAND_COOLANT_ON:
-    setCoolant(COOLANT_FLOOD, machineState.currentTurret);
+  setCoolant(COOLANT_FLOOD, machineState.currentTurret);
     break;
   case COMMAND_LOCK_MULTI_AXIS:
     writeBlock(cAxisBrakeModal.format(getCode("LOCK_MULTI_AXIS", getSpindle(true))), "(LOCK MULTI AXIS)");
@@ -3669,7 +3670,7 @@ function onSectionEnd() {
 */
 
   if (!stockTransferIsActive) {
-    writeBlock("VLMON[" + (currentSection.getId() + 1) + "]=" + "0");
+   // writeBlock("VLMON[" + (currentSection.getId() + 1) + "]=" + "0");
   }
 
   forceXZCMode = false;
