@@ -240,6 +240,7 @@ var previousSpindle;
 var activeSpindle=0;
 var currentRPM = 0;
 var partCutoff = false;
+var partWasCutOff = false;
 var reverseTap = false;
 var showSequenceNumbers;
 var stockTransferIsActive = false;
@@ -1291,6 +1292,7 @@ function onSection() {
   partCutoff = hasParameter("operation-strategy") &&
     (getParameter("operation-strategy") == "turningPart");
 
+
   updateMachiningMode(currentSection); // sets the needed machining mode to machineState (usePolarMode, useXZCMode, axialCenterDrilling)
   
   // Get the active spindle
@@ -1305,8 +1307,9 @@ function onSection() {
   if (!isFirstSection() && insertToolCall &&
       !(stockTransferIsActive && partCutoff)) {
     if (stockTransferIsActive) {
-      if (!partCutoff){
+      if (!partWasCutOff){ //
       writeBlock(gFormat.format(144)); // Wait code to allow for tool Restart function on the machine.
+      writeBlock("TEST");
       }
       writeBlock(mFormat.format(getCode("SPINDLE_SYNCHRONIZATION_OFF", getSpindle(true))), formatComment("SYNCHRONIZED ROTATION OFF"));
     } else {
@@ -2697,7 +2700,7 @@ function onCycle() {
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       waitNumber += 10;
       if((getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation-strategy") && getPreviousSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation:goHomeMode") && (getPreviousSection().getParameter("operation:goHomeMode") != "begin end" ))){
-      
+        partWasCutOff = true;
       } else {
       writeBlock(gFormat.format(145)); //Wait code to allow for Tool Restart on the machine
       writeBlock(gFormat.format(144)); //Wait code to allow for Tool Restart on the machine
@@ -2793,6 +2796,8 @@ function onCycle() {
       }
       writeBlock(mFormat.format(89), mFormat.format(289));
       if((getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation-strategy") && getPreviousSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation:goHomeMode") && (getPreviousSection().getParameter("operation:goHomeMode") != "begin end" ))){
+
+      } else {
         writeBlock(gFormat.format(145)); //Wait code to allow for Tool Restart on the machine
       }
       writeBlock(mFormat.format(getCode("INTERNAL_INTERLOCK_ON", getSecondarySpindle())), formatComment("SUB CHUCK INTERLOCK RELEASE ON"));
