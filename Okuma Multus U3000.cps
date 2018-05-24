@@ -254,6 +254,7 @@ var G127isActive = false;
 var retracted = false; // specifies that the tool has been retracted to the safe plane
 var waitNumber = 10;
 var isNewSpindle = false;
+var HSSC = false; 
 
 var machineState = {
   liveToolIsActive: undefined,
@@ -995,7 +996,8 @@ function setWorkPlane(abc) {
   }
 
   onCommand(COMMAND_UNLOCK_MULTI_AXIS);
-
+  zOutput.reset();
+/*
   if (!retracted) {
     if(currentSection.isPatterned()){
       writeRetract(X);
@@ -1004,10 +1006,10 @@ function setWorkPlane(abc) {
     if(!stockTransferIsActive){
     writeRetract();
     }
-  }
+  } 
     // writeRetract(X);
     // writeRetract(Z);
-  }
+  } */
   writeBlock(
     gMotionModal.format(0),
     conditional(machineConfiguration.isMachineCoordinate(0), "A" + abcFormat.format(abc.x)),
@@ -1240,6 +1242,7 @@ function isProbeOperation() {
 var bAxisOrientationTurning = new Vector(0, 0, 0);
 
 function onSection() {
+
   // Detect machine configuration
   machineConfiguration = (currentSection.spindle == SPINDLE_PRIMARY) ? machineConfigurationMainSpindle : machineConfigurationSubSpindle;
   if (!gotBAxis) {
@@ -1271,7 +1274,7 @@ function onSection() {
   if (machineState.isTurningOperation && gotBAxis) {
     bAxisOrientationTurning = getBAxisOrientationTurning(currentSection);
   }
-  var insertToolCall = forceToolAndRetract || isFirstSection() ||
+  var insertToolCall = forceToolAndRetract || isFirstSection() || currentSection.isMultiAxis() ||
     currentSection.getForceToolChange && currentSection.getForceToolChange() ||
     (tool.number != getPreviousSection().getTool().number) ||
     (tool.compensationOffset != getPreviousSection().getTool().compensationOffset) ||
@@ -1309,7 +1312,6 @@ function onSection() {
     if (stockTransferIsActive) {
       if (!partWasCutOff){ //
       writeBlock(gFormat.format(144)); // Wait code to allow for tool Restart function on the machine.
-      writeBlock("TEST");
       }
       writeBlock(mFormat.format(getCode("SPINDLE_SYNCHRONIZATION_OFF", getSpindle(true))), formatComment("SYNCHRONIZED ROTATION OFF"));
     } else {
@@ -1675,7 +1677,7 @@ function onSection() {
       } else { // milling
         // upper turret
         if (currentSection.spindle == SPINDLE_PRIMARY) {
-          if (getMachiningDirection(currentSection) == MACHINING_DIRECTION_RADIAL) {
+          if (getMachiningDirection(currentSection) == MACHINING_DIRECTION_RADIAL && !currentSection.isMultiAxis()) {
             writeBlock("TD=05" + toolFormat.format(tool.number) + " M323");
           } else {
             writeBlock("TD=01" + toolFormat.format(tool.number) + " M323");
@@ -1683,7 +1685,7 @@ function onSection() {
         }
         if (properties.gotSecondarySpindle) {
           if (currentSection.spindle == SPINDLE_SECONDARY) {
-            if (getMachiningDirection(currentSection) == MACHINING_DIRECTION_RADIAL) {
+            if (getMachiningDirection(currentSection) == MACHINING_DIRECTION_RADIAL && !currentSection.isMultiAxis()) {
               writeBlock("TD=11" + toolFormat.format(tool.number) + " M323");
             } else {
               writeBlock("TD=7" + toolFormat.format(tool.number) + " M323");
@@ -1842,8 +1844,32 @@ function onSection() {
 
     // Turn spindle on
     setSpindle(false, true);
+    if(HSSC){
+    writeBlock(mFormat.format(695));  
+    }
   }
-
+  if(!machineState.isTurningOperation && !machineState.axialCenterDrilling){
+    if (hasParameter("operation:tolerance")) {
+        t = getParameter("operation:tolerance");
+        var d = getParameter("operation:tolerance");
+      } else {
+        t = 0.01;
+      }
+      if (hasParameter("operation-strategy") && getParameter("operation-strategy") == 'adaptive'){
+        t = 0.1 ;
+        var d = getParameter("operation:tolerance");
+      }
+      if(currentSection.isMultiAxis()){
+        t = 0.01 ;
+        var d = getParameter("operation:tolerance");
+      }
+      if(t<0.001){
+        t = 0.005;  
+      }
+  writeBlock(gFormat.format(265), "F20000", "E"+t, "J0", "D"+d );
+  } else {
+  writeBlock(gFormat.format(264));
+  }
   // Turn off interference checking with secondary spindle
   if (getSpindle(true) == SPINDLE_SUB) {
     // writeBlock(mInterferModal.format(getCode("INTERFERENCE_CHECK_OFF", getSpindle(true))));
@@ -1898,7 +1924,7 @@ function onSection() {
       currentSection.spindle == SPINDLE_PRIMARY ? "TDS=01" : "TDS=07"
     );
   } else {
-    if (insertToolCall || retracted) {
+    if (insertToolCall || retracted || G127isActive) {
       gMotionModal.reset();
       if (machineState.useXZCMode || machineState.usePolarMode) {
         writeBlock(gPlaneModal.format(getG17Code()));
@@ -2419,6 +2445,24 @@ function onLinear(_x, _y, _z, feed) {
     linearCode = 101;
   }
   if (x || y || z) {
+    if (false) { // TESTING ONLY, not proven, DANGER !!!
+      if (movement == MOVEMENT_LINK_DIRECT) {
+        if (machineState.usePolarMode || machineState.useXZCMode || machineState.isTurningOperation) {
+          error(localize("POST ERROR"));
+          return;
+        }
+        var startXYZ = getCurrentPosition();
+        var endXYZ = new Vector(_x, _y, _z);
+        var length = Vector.diff(startXYZ, endXYZ).length;
+        var numberOfSegments = Math.max(Math.ceil(length / toPreciseUnit(0.5, MM)), 1);
+        var localTolerance = getTolerance() / 2;
+        for (var i = 1; i <= numberOfSegments; ++i) {
+          var p = Vector.lerp(startXYZ, endXYZ, i * 1.0 / numberOfSegments);
+          writeBlock(gMotionModal.format(linearCode), xOutput.format(p.x), yOutput.format(p.y), zOutput.format(p.z), f);
+        }
+        return;
+      }
+    }
     if (pendingRadiusCompensation >= 0) {
       pendingRadiusCompensation = -1;
       if (machineState.isTurningOperation) {
@@ -2682,6 +2726,15 @@ function onCycle() {
 
       if((getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation-strategy") && getPreviousSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation:goHomeMode") && (getPreviousSection().getParameter("operation:goHomeMode") != "begin end" ))){
         onCommand(COMMAND_OPTIONAL_STOP);
+        if (getPreviousSection().getTool().getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED) {
+          var initialPosition = getCurrentPosition();
+          var spindleDir = mFormat.format(getPreviousSection().getTool().clockwise ? getCode("START_SPINDLE_CW", getSpindle(false)) : getCode("START_SPINDLE_CCW", getSpindle(false)));
+          writeBlock(
+            gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false))),
+            sOutput.format(Math.min((getPreviousSection().getTool().surfaceSpeed)/(Math.PI*initialPosition.x*2), properties.maximumSpindleSpeed))
+            // spindleDir
+          );
+        }
         writeBlock(gFormat.format(270), "(Turning Mode ON)");
       } else {
         writeRetract();
@@ -2691,8 +2744,8 @@ function onCycle() {
         yOutput.disable();
         writeBlock("T100");
         writeRetract();
+        onCommand(COMMAND_STOP_SPINDLE);
       }
-      onCommand(COMMAND_STOP_SPINDLE);
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       writeBlock(gFormat.format(14));
       writeBlock(gFormat.format(140));
@@ -2775,8 +2828,8 @@ function onCycle() {
           wOutput.format(properties.homePositionW),
           formatComment("SUB SPINDLE RETURN")
         );
-        onCommand(COMMAND_STOP_SPINDLE);
         writeBlock(mFormat.format(150));
+        onCommand(COMMAND_STOP_SPINDLE);
         writeBlock(mFormat.format(807));
         writeBlock(mFormat.format(getCode("INTERNAL_INTERLOCK_OFF", getSpindle(true))), formatComment("MAIN CHUCK INTERLOCK RELEASE OFF"));
         writeBlock(mFormat.format(getCode("INTERNAL_INTERLOCK_OFF", getSecondarySpindle())), formatComment("SUB CHUCK INTERLOCK RELEASE OFF"));
@@ -3168,6 +3221,10 @@ function onParameter(name, value) {
     } else if (String(value).toUpperCase() == "USEPOLARMODE") {
       forcePolarMode = true;
       forceXZCMode = false;
+    } else if (String(value).toUpperCase() == "HSSC-ON") {
+      HSSC = true;
+    } else if (String(value).toUpperCase() == "HSSC-OFF") {
+      HSSC = false;
     } else {
       invalid = true;
     }
@@ -3460,6 +3517,14 @@ function onCommand(command) {
     }
     break;
   case COMMAND_BREAK_CONTROL:
+    writeRetract();
+    setCoolant(COOLANT_OFF, machineState.currentTurret);
+  if(currentSection.spindle == SPINDLE_PRIMARY){
+    writeBlock(mFormat.format(350));
+	} else {
+    writeBlock(mFormat.format(355));
+    }
+      writeRetract();
     break;
   case COMMAND_TOOL_MEASURE:
     break;
@@ -3664,7 +3729,7 @@ function onSectionEnd() {
   
   if (((getCurrentSectionId() + 1) >= getNumberOfSections()) ||
       (tool.number != getNextSection().getTool().number)) {
-    onCommand(COMMAND_BREAK_CONTROL);
+    //onCommand(COMMAND_BREAK_CONTROL);
   }
 
 /*
@@ -3684,6 +3749,10 @@ function onSectionEnd() {
 
   if (!stockTransferIsActive) {
    // writeBlock("VLMON[" + (currentSection.getId() + 1) + "]=" + "0");
+   //setSpindle(false, true);
+  }
+  if(HSSC){
+    writeBlock(mFormat.format(694));  
   }
 
   forceXZCMode = false;
