@@ -87,7 +87,8 @@ properties = {
   gotSecondarySpindle: true, // machine has a secondary spindle
   useM960: true, // use M960 C-axis shortest direction instead of M15/M16 directional codes
   useSimpleThread: true, // outputs a G33 threading cycle, false outputs a G71 (standard) threading cycle
-  CASOff: false //Collision Avoidance system
+  CASOff: false, //Collision Avoidance system
+  lowGear: false //Use Low gear for turning operations.
 };
 
 // user-defined property definitions
@@ -257,6 +258,7 @@ var waitNumber = 10;
 var isNewSpindle = false;
 var HSSC = false; 
 var j = 0;
+var lowGear = false;
 
 var machineState = {
   liveToolIsActive: undefined,
@@ -1331,7 +1333,7 @@ function onSection() {
         }
       }
       setCoolant(COOLANT_OFF, machineState.currentTurret);
-
+      /*
       // cancel SFM mode to preserve spindle speed
       if (getPreviousSection().getTool().getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED) {
         var initialPosition = getCurrentPosition();
@@ -1341,7 +1343,7 @@ function onSection() {
           sOutput.format(Math.min((getPreviousSection().getTool().surfaceSpeed)/(Math.PI*initialPosition.x*2), properties.maximumSpindleSpeed))
           // spindleDir
         );
-      }
+      }*/
     }
     // writeRetract();
     // writeRetract(X);
@@ -1853,6 +1855,14 @@ writeBlock(mFormat.format(867));
     writeBlock(mFormat.format(695));  
     }
   }
+  var maxFeed = 20000;
+
+  if (hasParameter("operation:noEngagementFeedrate")) {
+   maxFeed =  getParameter("operation:noEngagementFeedrate");
+  } else {
+   maxFeed = getParameter("operation:tool_feedCutting");
+  }
+
   if(!machineState.isTurningOperation && !machineState.axialCenterDrilling){
     if (hasParameter("operation:tolerance")) {
         t = getParameter("operation:tolerance");
@@ -1875,7 +1885,7 @@ writeBlock(mFormat.format(867));
         t = 0.01;
         j = 1; 
       }
-  writeBlock(gFormat.format(265), "F20000", "E"+t, "J"+j, "D"+d );
+  writeBlock(gFormat.format(265), "F"+maxFeed, "E"+t*2, "J"+j, "D"+d*2 );
   } else {
   writeBlock(gFormat.format(264));
   }
@@ -2366,7 +2376,7 @@ function onLinear(_x, _y, _z, feed) {
       var currentXYZ = splitXYZ;
       var turnFirst = false;
 
-      while (true) { // repeat if we need to split
+      while (false) { // repeat if we need to split
         var radius = Math.min(getModulus(startXYZ.x, startXYZ.y), getModulus(currentXYZ.x, currentXYZ.y));
         var radial = !xFormat.isSignificant(radius); // used to avoid noice in C-axis
         var length = Vector.diff(startXYZ, currentXYZ).length; // could measure in XY only
@@ -2746,6 +2756,9 @@ function onCycle() {
         }
         writeBlock(gFormat.format(270), "(Turning Mode ON)");
       } else {
+
+        writeBlock(gFormat.format(13));
+        writeBlock(gFormat.format(140));
         writeRetract();
         onCommand(COMMAND_OPTIONAL_STOP);
         //writeBlock(cAxisEnableModal.format(getCode("DISABLE_C_AXIS", getSpindle(true))));
@@ -2758,6 +2771,7 @@ function onCycle() {
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       writeBlock(gFormat.format(14));
       writeBlock(gFormat.format(140));
+      
       writeBlock(gFormat.format(20), "HP=" + spatialFormat.format(3)); // retract
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       waitNumber += 10;
@@ -2929,7 +2943,7 @@ function onCycle() {
           gFormat.format(getCode("TORQUE_SKIP_ON", getSpindle(true))),
           wOutput.format(cycle.chuckPosition),
           "D" + zFormat.format(cycle.feedPosition - cycle.chuckPosition),
-          "L" + zFormat.format(cycle.feedPosition - upperZ),
+          "L" + zFormat.format(0.25),
           getFeed(cycle.feedrate),
           "PW=" + integerFormat.format(wAxisTorqueMiddle)
         );
@@ -3487,10 +3501,18 @@ function setSpindle(tappingMode, forceRPMMode) {
   } else {
     gearCode =  mFormat.format(242);
   }
+  if(getSpindle(false) != SPINDLE_LIVE){
+
+    if(lowGear || properties.lowGear){
+      gearCode =  mFormat.format(41);
+    } else{
+      gearCode =  mFormat.format(42);
+    }
+  }
   if (getSpindle(false) == SPINDLE_LIVE) {
     writeBlock(spindleMode, scode, spindleDir, gearCode);
   } else {
-    writeBlock(spindleMode, scode, spindleDir, constantSpeedCuttingTurret);
+    writeBlock(spindleMode, scode, spindleDir, constantSpeedCuttingTurret, gearCode);
   }
   // wait for spindle here if required
 }
@@ -3735,7 +3757,31 @@ function onSectionEnd() {
     }
   }
 */
+
+var forceToolAndRetract = optionalSection && !getNextSection.isOptional();
+	
+if(hasNextSection()){
+  var useG97 = forceToolAndRetract || isFirstSection() ||
+  currentSection.getForceToolChange && currentSection.getForceToolChange() ||
+  (tool.number != getNextSection().getTool().number) ||
+  (tool.compensationOffset != getNextSection().getTool().compensationOffset) ||
+  (tool.diameterOffset != getNextSection().getTool().diameterOffset) ||
+  (tool.lengthOffset != getNextSection().getTool().lengthOffset) || (getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningSecondarySpindleGrab")  ;
+} else {
+    useG97 = true;
+}
   
+if (useG97) {
+
+    // cancel SFM mode to preserve spindle speed
+    if (tool.getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED) {
+      var initialPosition = getCurrentPosition();
+      //var spindleDir = mFormat.format(getPreviousSection().getTool().clockwise ? getCode("START_SPINDLE_CW", getSpindle(false)) : getCode("START_SPINDLE_CCW", getSpindle(false)));
+        var maximumSpindleSpeed = (tool.maximumSpindleSpeed > 0) ? Math.min(tool.maximumSpindleSpeed, properties.maximumSpindleSpeed) : properties.maximumSpindleSpeed;
+writeBlock(gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false))), sOutput.format(Math.min((tool.surfaceSpeed)/(Math.PI*initialPosition.x*2), maximumSpindleSpeed)));
+  }
+  }
+
   if ((((getCurrentSectionId() + 1) >= getNumberOfSections()) ||
       (tool.number != getNextSection().getTool().number)) && tool.breakControl) {
     onCommand(COMMAND_BREAK_CONTROL);
