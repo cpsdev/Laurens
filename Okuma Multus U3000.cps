@@ -1855,13 +1855,9 @@ writeBlock(mFormat.format(867));
     writeBlock(mFormat.format(695));  
     }
   }
-  var maxFeed = 20000;
+  var maxFeed = currentSection.getMaximumFeedrate();
 
-  if (hasParameter("operation:noEngagementFeedrate")) {
-   maxFeed =  getParameter("operation:noEngagementFeedrate");
-  } else {
-   maxFeed = getParameter("operation:tool_feedCutting");
-  }
+
 
   if(!machineState.isTurningOperation && !machineState.axialCenterDrilling){
     if (hasParameter("operation:tolerance")) {
