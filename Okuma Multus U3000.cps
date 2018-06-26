@@ -762,7 +762,7 @@ function onOpen() {
   writeBlock(mFormat.format(216));
 
   writeBlock(gFormat.format((getSection(0).getTool().turret == 2) ? 13 : 14));
-  writeBlock(gFormat.format(140));
+  writeBlock(gFormat.format(141));
   onCommand(COMMAND_CLOSE_DOOR);
   if (getSection(0).spindle == SPINDLE_PRIMARY) {
     writeBlock(gFormat.format(20), "HP=" + spatialFormat.format(1)); // retract
@@ -770,7 +770,7 @@ function onOpen() {
     writeBlock(gFormat.format(20), "HP=" + spatialFormat.format(2)); // retract
   }
   writeBlock(gFormat.format(50), sOutput.format(properties.maximumSpindleSpeed));
-  writeBlock(gFormat.format(141));
+  writeBlock(gFormat.format(140));
   writeBlock(gFormat.format(50), sOutput.format(properties.maximumSpindleSpeed));
   writeBlock(gFormat.format(111));
   writeBlock(mFormat.format(216));
@@ -1855,8 +1855,8 @@ writeBlock(mFormat.format(867));
     writeBlock(mFormat.format(695));  
     }
   }
-  var maxFeed = currentSection.getMaximumFeedrate();
-
+  // var maxFeed = currentSection.getMaximumFeedrate();
+  var maxFeed = 20000;
 
 
   if(!machineState.isTurningOperation && !machineState.axialCenterDrilling){
@@ -1866,10 +1866,19 @@ writeBlock(mFormat.format(867));
       } else {
         t = 0.01;
         j = 0;
+        var d = 0.01;
+      } 
+      if(hasParameter("operation:smoothingFilter") && getParameter("operation:smoothingFilter") == 1){
+        t = getParameter("operation:smoothingFilterTolerance");
+        var d = getParameter("operation:smoothingFilterTolerance");
       }
       if (hasParameter("operation-strategy") && getParameter("operation-strategy") == 'adaptive'){
         t = 0.1 ;
+        if(hasParameter("operation:smoothingFilterTolerance") && getParameter("operation:smoothingFilterTolerance") != 0){
+        var d = getParameter("operation:smoothingFilterTolerance");
+        } else {
         var d = getParameter("operation:tolerance");
+        }
         j = 1;
       }
       if(currentSection.isMultiAxis()){
@@ -1881,7 +1890,7 @@ writeBlock(mFormat.format(867));
         t = 0.01;
         j = 1; 
       }
-  writeBlock(gFormat.format(265), "F"+maxFeed, "E"+t*2, "J"+j, "D"+d*2 );
+  writeBlock(gFormat.format(265), "F"+spatialFormat.format(maxFeed), "E"+t, "J"+j, "D"+d );
   } else {
   writeBlock(gFormat.format(264));
   }
@@ -2487,9 +2496,11 @@ function onLinear(_x, _y, _z, feed) {
       }
       switch (radiusCompensation) {
       case RADIUS_COMPENSATION_LEFT:
+        writeBlock(gPlaneModal.format(getG17Code()));
         writeBlock(gMotionModal.format(linearCode), gFormat.format(41), x, y, z, f);
         break;
       case RADIUS_COMPENSATION_RIGHT:
+        writeBlock(gPlaneModal.format(getG17Code()));
         writeBlock(gMotionModal.format(linearCode), gFormat.format(42), x, y, z, f);
         break;
       default:
@@ -2590,7 +2601,7 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
     linearize(getTolerance());
     return;
   }
-
+/*
   if (getSpindle(false) == SPINDLE_LIVE) {
     if (getMachiningDirection(currentSection) == MACHINING_DIRECTION_AXIAL) {
       if (getCircularPlane() != PLANE_XY) {
@@ -2603,7 +2614,7 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
         return;
       }
     }
-  }
+  } */
 
   if (isSpeedFeedSynchronizationActive()) {
     error(localize("Speed-feed synchronization is not supported for circular moves."));
@@ -2767,13 +2778,14 @@ function onCycle() {
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       writeBlock(gFormat.format(14));
       writeBlock(gFormat.format(140));
-      
+      onCommand(COMMAND_STOP_SPINDLE);
       writeBlock(gFormat.format(20), "HP=" + spatialFormat.format(3)); // retract
       writeBlock("N" + waitNumber + " P" + (waitNumber));
       waitNumber += 10;
       if((getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation-strategy") && getPreviousSection().getParameter("operation-strategy") == "turningPart") && (getPreviousSection().hasParameter("operation:goHomeMode") && (getPreviousSection().getParameter("operation:goHomeMode") != "begin end" ))){
         partWasCutOff = true;
       } else {
+      writeBlock(mFormat.format(331));
       writeBlock(gFormat.format(145)); //Wait code to allow for Tool Restart on the machine
       writeBlock(gFormat.format(144)); //Wait code to allow for Tool Restart on the machine
       }  
@@ -2842,6 +2854,7 @@ function onCycle() {
           onDwell(cycle.dwell);
         }
         writeBlock(mFormat.format(808));
+        writeBlock(gMotionModal.format(1), wOutput.format(cycle.feedPosition), getFeed(cycle.feedrate));
         writeBlock(
           gMotionModal.format(0),
           wOutput.format(properties.homePositionW),
@@ -2939,7 +2952,7 @@ function onCycle() {
           gFormat.format(getCode("TORQUE_SKIP_ON", getSpindle(true))),
           wOutput.format(cycle.chuckPosition),
           "D" + zFormat.format(cycle.feedPosition - cycle.chuckPosition),
-          "L" + zFormat.format(0.25),
+          "L" + zFormat.format(0.5),
           getFeed(cycle.feedrate),
           "PW=" + integerFormat.format(wAxisTorqueMiddle)
         );
@@ -3757,12 +3770,12 @@ function onSectionEnd() {
 var forceToolAndRetract = optionalSection && !getNextSection.isOptional();
 	
 if(hasNextSection()){
-  var useG97 = forceToolAndRetract || isFirstSection() ||
+  var useG97 = (forceToolAndRetract || isFirstSection() ||
   currentSection.getForceToolChange && currentSection.getForceToolChange() ||
   (tool.number != getNextSection().getTool().number) ||
   (tool.compensationOffset != getNextSection().getTool().compensationOffset) ||
   (tool.diameterOffset != getNextSection().getTool().diameterOffset) ||
-  (tool.lengthOffset != getNextSection().getTool().lengthOffset) || (getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningSecondarySpindleGrab")  ;
+  (tool.lengthOffset != getNextSection().getTool().lengthOffset) || (getNextSection().hasParameter("operation-strategy") && getNextSection().getParameter("operation-strategy") == "turningSecondarySpindleGrab")) && (currentSection.hasParameter("operation-strategy") && currentSection.getParameter("operation-strategy") != "turningSecondarySpindleReturn") ;
 } else {
     useG97 = true;
 }
