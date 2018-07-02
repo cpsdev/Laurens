@@ -2576,6 +2576,291 @@ function onLinear5D(_x, _y, _z, _a, _b, _c, feed) {
   }
 }
 
+// Start of onRewindMachine logic
+/***** Be sure to add 'safeRetractDistance' to post properties. *****/
+var performRewinds = true; // enables the onRewindMachine logic
+var safeRetractFeed = (unit == IN) ? 20 : 2000;
+var safePlungeFeed = (unit == IN) ? 10 : 500;
+var stockAllowance = (unit == IN) ? 0.1 : 2.5;
+
+/** Allow user to override the onRewind logic */
+function onRewindMachineEntry(_a, _b, _c) {
+  // reset the rotary encoder if supported to avoid large rewind
+  if (properties.rewindCAxisEncoder) {
+    var c = _c % Math.PI * 2;
+    if ((abcFormat.getResultingValue(c) == 0) && !abcFormat.areDifferent(getCurrentDirection().y, _b)) {
+      writeBlock(gAbsIncModal.format(91), gFormat.format(28), "C" + abcFormat.format(0));
+      writeBlock(gAbsIncModal.format(90));
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Retract to safe position before indexing rotaries. */
+function moveToSafeRetractPosition(retracted) {
+  if (properties.useG28) {
+    if (!retracted) {
+      writeBlock(gFormat.format(28), gAbsIncModal.format(91), "Z" + xyzFormat.format(0));
+      zOutput.reset();
+    }
+    if (properties.forceHomeOnIndexing) {
+      writeBlock(gFormat.format(28), gAbsIncModal.format(91), "X" + xyzFormat.format(0), "Y" + xyzFormat.format(0));
+      xOutput.reset();
+      yOutput.reset();
+    }
+  } else {
+    if (!retracted) {
+	forceXYZ()
+      writeBlock("FUNCTION RESET TCPM");
+  writeBlock("L Z" + xyzFormat.format(machineConfiguration.getRetractPlane()) + " R0 FMAX " + mFormat.format(properties.useM92 ? 92 : 91));
+      zOutput.reset();
+    }
+    if (properties.forceHomeOnIndexing) { // e.g. when machining very big parts
+      writeBlock(
+        gAbsIncModal.format(90), gFormat.format(53), gMotionModal.format(0),
+        "X" + xyzFormat.format(machineConfiguration.hasHomePositionX() ? machineConfiguration.getHomePositionX() : 0),
+        "Y" + xyzFormat.format(machineConfiguration.hasHomePositionY() ? machineConfiguration.getHomePositionY() : 0)
+      ); // Safe tool position
+      xOutput.reset();
+      yOutput.reset();
+    }
+  }
+}
+
+/** Return from safe position after indexing rotaries. */
+function returnFromSafeRetractPosition(position) {
+  forceXYZ();
+  xOutput.reset();
+  yOutput.reset();
+  zOutput.disable();
+  onRapid(position.x, position.y, position.z);
+  zOutput.enable();
+  onRapid(position.x, position.y, position.z);
+}
+
+/** Determine if a point is on the correct side of a box side. */
+function isPointInBoxSide(point, side) {
+  var inBox = false;
+  switch (side.side) {
+  case "-X":
+    if (point.x >= side.distance) {
+      inBox = true;
+    }
+    break;
+  case "-Y":
+    if (point.y >= side.distance) {
+      inBox = true;
+    }
+    break;
+  case "-Z":
+    if (point.z >= side.distance) {
+      inBox = true;
+    }
+    break;
+  case "X":
+    if (point.x <= side.distance) {
+      inBox = true;
+    }
+    break;
+  case "Y":
+    if (point.y <= side.distance) {
+      inBox = true;
+    }
+    break;
+  case "Z":
+    if (point.z <= side.distance) {
+      inBox = true;
+    }
+    break;
+  }
+  return inBox;
+}
+
+/** Intersect a point-vector with a plane. */
+function intersectPlane(point, direction, plane) {
+  var normal = new Vector(plane.x, plane.y, plane.z);
+  var cosa = Vector.dot(normal, direction);
+  if (Math.abs(cosa) <= 1.0e-6) {
+    return undefined;
+  }
+  var distance = (Vector.dot(normal, point) - plane.distance) / cosa;
+  var intersection = Vector.diff(point, Vector.product(direction, distance));
+  
+  if (!isSameDirection(Vector.diff(intersection, point).getNormalized(), direction)) {
+    return undefined;
+  }
+  return intersection;
+}
+
+/** Intersect the point-vector with the stock box. */
+function intersectStock(point, direction) {
+  var stock = getWorkpiece();
+  var sides = new Array(
+    {x:1, y:0, z:0, distance:stock.lower.x, side:"-X"},
+    {x:0, y:1, z:0, distance:stock.lower.y, side:"-Y"},
+    {x:0, y:0, z:1, distance:stock.lower.z, side:"-Z"},
+    {x:1, y:0, z:0, distance:stock.upper.x, side:"X"},
+    {x:0, y:1, z:0, distance:stock.upper.y, side:"Y"},
+    {x:0, y:0, z:1, distance:stock.upper.z, side:"Z"}
+  );
+  var intersection = undefined;
+  var currentDistance = 999999.0;
+  var localExpansion = -stockAllowance;
+  for (var i = 0; i < sides.length; ++i) {
+    if (i == 3) {
+      localExpansion = -localExpansion;
+    }
+    if (isPointInBoxSide(point, sides[i])) { // only consider points within stock box
+      var location = intersectPlane(point, direction, sides[i]);
+      if (location != undefined) {
+        if ((Vector.diff(point, location).length < currentDistance) || currentDistance == 0) {
+          intersection = location;
+          currentDistance = Vector.diff(point, location).length;
+        }
+      }
+    }
+  }
+  return intersection;
+}
+
+/** Calculates the retract point using the stock box and safe retract distance. */
+function getRetractPosition(currentPosition, currentDirection) {
+  var retractPos = intersectStock(currentPosition, currentDirection);
+  if (retractPos == undefined) {
+    if (tool.getFluteLength() != 0) {
+      retractPos = Vector.sum(currentPosition, Vector.product(currentDirection, tool.getFluteLength()));
+    }
+  }
+  if ((retractPos != undefined) && properties.safeRetractDistance) {
+    retractPos = Vector.sum(retractPos, Vector.product(currentDirection, properties.safeRetractDistance));
+  }
+  return retractPos;
+}
+
+/** Determines if the angle passed to onRewindMachine is a valid starting position */
+function isRewindAngleValid(_a, _b, _c) {
+ // writeln("current = " + _a + ", " + _b + ", " + _c);
+ // writeln("previous = " + getCurrentDirection().x + ", " + getCurrentDirection().y + ", " + getCurrentDirection().z);
+  
+  // make sure the angles are different from the last output angles
+  if (!abcFormat.areDifferent(getCurrentDirection().x, _a) && 
+      !abcFormat.areDifferent(getCurrentDirection().y, _b) &&
+      !abcFormat.areDifferent(getCurrentDirection().z, _c)) {
+    error(localize("REWIND: Rewind angles are the same as the previous angles: ") + 
+      abcFormat.format(_a) + ", " + abcFormat.format(_b) + ", " + abcFormat.format(_c));
+    return false;
+  }
+  
+  // make sure angles are within the limits of the machine
+  var abc = new Array(_a, _b, _c);
+  var ix = machineConfiguration.getAxisU().getCoordinate();
+  var failed = false;
+  if ((ix != -1) && !machineConfiguration.getAxisU().isSupported(abc[ix])) {
+    failed = true;
+  }
+  ix = machineConfiguration.getAxisV().getCoordinate();
+  if ((ix != -1) && !machineConfiguration.getAxisV().isSupported(abc[ix])) {
+    failed = true;
+  }
+  ix = machineConfiguration.getAxisW().getCoordinate();
+  if ((ix != -1) && !machineConfiguration.getAxisW().isSupported(abc[ix])) {
+    failed = true;
+  }
+  if (failed) {
+    error(localize("REWIND: Rewind angles are outside the limits of the machine: ") + 
+      abcFormat.format(_a) + ", " + abcFormat.format(_b) + ", " + abcFormat.format(_c));
+    return false;
+  }
+  
+  return true;
+}
+
+function onRewindMachine(_a, _b, _c) {
+  
+  if (!performRewinds) {
+    error(localize("REWIND: Rewind of machine is required for simultaneous multi-axis toolpath and has been disabled."));
+    return;
+  }
+  
+  // Determine if input angles are valid or will cause a crash
+  if (!isRewindAngleValid(_a, _b, _c)) {
+    error(localize("REWIND: Rewind angles are invalid:") + 
+      abcFormat.format(_a) + ", " + abcFormat.format(_b) + ", " + abcFormat.format(_c));
+    return;
+  }
+  
+  // Allow user to override rewind logic
+  if (onRewindMachineEntry(_a, _b, _c)) {
+    return;
+  }
+  
+  // Work with the tool end point
+  if (currentSection.getOptimizedTCPMode() == 0) {
+    currentTool = getCurrentPosition();
+  } else {
+    currentTool = machineConfiguration.getOrientation(getCurrentDirection()).multiply(getCurrentPosition());
+  }
+  var currentABC = getCurrentDirection();
+  var currentDirection = machineConfiguration.getDirection(currentABC);
+  
+  // Calculate the retract position
+  var retractPosition = getRetractPosition(currentTool, currentDirection);
+
+  // Output warning that axes take longest route
+  if (retractPosition == undefined) {
+    error(localize("REWIND: Cannot calculate retract position."));
+    return;
+  } else {
+    var text = localize("REWIND: Tool is retracting due to rotary axes limits.");
+    warning(text);
+    writeComment(text);
+  }
+
+  // Move to retract position
+  var position;
+  if (currentSection.getOptimizedTCPMode() == 0) {
+    position = retractPosition;
+  } else {
+    position = machineConfiguration.getOrientation(getCurrentDirection()).getTransposed().multiply(retractPosition);
+  }
+
+if(_a != 0){
+
+
+  onLinear(position.x, position.y, position.z, safeRetractFeed);
+  
+  //Position to safe machine position for rewinding axes
+  moveToSafeRetractPosition(false);
+}
+  // Rotate axes to new position above reentry position
+  xOutput.disable();
+  yOutput.disable();
+  zOutput.disable();
+  onRapid5D(position.x, position.y, position.z, _a, _b, _c);
+  xOutput.enable();
+  yOutput.enable();
+  zOutput.enable();
+if(_a != 0){
+      writeBlock(mFormat.format(128)); // only after we are at initial position
+forceABC();
+forceXYZ();
+  // Move back to position above part
+  if (currentSection.getOptimizedTCPMode() != 0) {
+    position = machineConfiguration.getOrientation(new Vector(_a, _b, _c)).getTransposed().multiply(retractPosition);
+  }
+  returnFromSafeRetractPosition(position);
+
+  // Plunge tool back to original position
+  if (currentSection.getOptimizedTCPMode() != 0) {
+    currentTool = machineConfiguration.getOrientation(new Vector(_a, _b, _c)).getTransposed().multiply(currentTool);
+  }
+  onLinear(currentTool.x, currentTool.y, currentTool.z, safePlungeFeed);
+}
+}
+// End of onRewindMachine logic
+
+
 function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
   var directionCode = clockwise ? 2 : 3;
   directionCode += (machineState.useXZCMode || machineState.usePolarMode) ? 100 : 0;
