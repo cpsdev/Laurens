@@ -600,11 +600,11 @@ function onOpen() {
   // mInterferModal.format(getCode("INTERFERENCE_CHECK_ON", SPINDLE_MAIN));
 
   if (true) {
-    var bAxisMain = createAxis({coordinate:1, table:false, axis:[0, -1, 0], range:[-30.001, 210.001], preference:0});
-    var cAxisMain = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.9999], preference:0}); // C axis is modal between primary and secondary spindle
+    var bAxisMain = createAxis({coordinate:1, table:false, axis:[0, -1, 0], range:[0, 210.001], preference:0});
+    var cAxisMain = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.999], preference:0}); // C axis is modal between primary and secondary spindle
 
-    var bAxisSub = createAxis({coordinate:1, table:false, axis:[0, -1, 0], range:[-30.001, 210.001], preference:0});
-    var cAxisSub = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.9999], preference:0}); // C axis is modal between primary and secondary spindle
+    var bAxisSub = createAxis({coordinate:1, table:false, axis:[0, -1, 0], range:[0, 210.001], preference:0});
+    var cAxisSub = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.999], preference:0}); // C axis is modal between primary and secondary spindle
 
     machineConfigurationMainSpindle = gotBAxis ? new MachineConfiguration(bAxisMain, cAxisMain) : new MachineConfiguration(cAxisMain);
     machineConfigurationSubSpindle =  gotBAxis ? new MachineConfiguration(bAxisSub, cAxisSub) : new MachineConfiguration(cAxisSub);
@@ -1539,7 +1539,7 @@ function onSection() {
   }
 
   // Write out maximum spindle speed
-  if (insertToolCall && !stockTransferIsActive) {
+  if (/*insertToolCall &&*/ !stockTransferIsActive) {
     if ((tool.maximumSpindleSpeed > 0) && (currentSection.getTool().getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED)) {
       var maximumSpindleSpeed = (tool.maximumSpindleSpeed > 0) ? Math.min(tool.maximumSpindleSpeed, properties.maximumSpindleSpeed) : properties.maximumSpindleSpeed;
       writeBlock(gFormat.format(50), sOutput.format(maximumSpindleSpeed));
@@ -2105,6 +2105,7 @@ function updateMachiningMode(section) {
           } else {
             // use main spindle for axialCenterDrilling
             machineState.axialCenterDrilling = true;
+            warning(localize("AxialCenterDrilling"));
           }
         } else {
           // several holes not on XY center, use live tool in XZCMode
@@ -2800,11 +2801,12 @@ function onRewindMachine(_a, _b, _c) {
   } else {
     position = machineConfiguration.getOrientation(getCurrentDirection()).getTransposed().multiply(retractPosition);
   }
+  if(_b != 0){
   onLinear(position.x, position.y, position.z, safeRetractFeed);
   
   //Position to safe machine position for rewinding axes
   moveToSafeRetractPosition(false);
-
+  }
   // Rotate axes to new position above reentry position
   xOutput.disable();
   yOutput.disable();
@@ -2818,6 +2820,7 @@ function onRewindMachine(_a, _b, _c) {
   if (currentSection.getOptimizedTCPMode() != 0) {
     position = machineConfiguration.getOrientation(new Vector(_a, _b, _c)).getTransposed().multiply(retractPosition);
   }
+  if(_b != 0){
   returnFromSafeRetractPosition(position);
 
   // Plunge tool back to original position
@@ -2825,6 +2828,7 @@ function onRewindMachine(_a, _b, _c) {
     currentTool = machineConfiguration.getOrientation(new Vector(_a, _b, _c)).getTransposed().multiply(currentTool);
   }
   onLinear(currentTool.x, currentTool.y, currentTool.z, safePlungeFeed);
+}
 }
 // End of onRewindMachine logic
 
@@ -3243,7 +3247,10 @@ function getCommonCycle(x, y, z, r) {
     return [xOutput.format(getModulus(x, y)), cOutput.format(currentC),
       zOutput.format(z),
       conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
-  } else {
+  } else if(machineState.axialCenterDrilling){
+    return [xOutput.format(x), yOutput.format(y),
+      zOutput.format(z), conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+  }  else {
 // TAG
     cOutput.reset();
     return [xOutput.format(x), yOutput.format(y),
@@ -3366,7 +3373,9 @@ function onCyclePoint(x, y, z) {
 
   var rapto = 0;
   if (isFirstCyclePoint()) { // first cycle point
+    if(!machineState.axialCenterDrilling){
     onCommand(COMMAND_LOCK_MULTI_AXIS);
+    }
 
     rapto = cycle.clearance - cycle.retract;
 
