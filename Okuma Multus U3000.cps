@@ -1006,7 +1006,7 @@ function setWorkPlane(abc) {
   onCommand(COMMAND_UNLOCK_MULTI_AXIS);
   zOutput.reset();
 
-  if (!retracted) {    
+  if (!retracted) {
     if (currentSection.isPatterned() && korteRetract) {
     writeComment("No Retract due to user - Manual NC");
     } else if (currentSection.isPatterned()) {
@@ -1798,11 +1798,30 @@ function onSection() {
     }
 */
   }
-  // activate Y-axis
-  if (gotYAxis && (getSpindle(false) == SPINDLE_LIVE) && !machineState.usePolarMode && !machineState.useXZCMode) {
-    gPlaneModal.reset();
-    writeBlock(gPolarModal.format(getCode("ENABLE_Y_AXIS", true)), "(Y AXIS MODE ON)");
-    yOutput.enable();
+
+  if (gotYAxis) {
+      // activate Y-axis
+    if ((getSpindle(false) == SPINDLE_LIVE) && !machineState.usePolarMode && !machineState.useXZCMode) {
+      gPlaneModal.reset();
+      var code = gPolarModal.format(getCode("ENABLE_Y_AXIS", true));
+      var info = code ? "(Y AXIS MODE ON)" : "";
+      writeBlock(code, info);
+      yOutput.enable();
+    } else {
+      // deactivate Y-axis
+      if (machineState.yAxisModeIsActive) {
+        if (!retracted) {
+          error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
+          return;
+        }
+        writeBlock(gMotionModal.format(0), yOutput.format(0));
+        onCommand(COMMAND_UNLOCK_MULTI_AXIS);
+        var code = gPolarModal.format(getCode("DISABLE_Y_AXIS", true));
+        var info = code ? "(Y AXIS MODE OFF)" : "";
+        writeBlock(code, info);
+        yOutput.disable();
+      }
+    }
   }
   // Activate part catcher for part cutoff section
   // if (properties.gotPartCatcher && partCutoff && currentSection.partCatcher) {
@@ -2038,12 +2057,19 @@ function doesToolpathFitInXYRange(abc) {
     var yRange = currentSection.getGlobalRange(dy);
 
     if (false) { // DEBUG
-      writeComment("toolpath X min: " + xFormat.format(xRange[0]) + ", " + "Limit " + xFormat.format(xAxisMinimum));
-      writeComment("X-min within range: " + (xFormat.getResultingValue(xRange[0]) >= xFormat.getResultingValue(xAxisMinimum)));
-      writeComment("toolpath Y min: " + spatialFormat.getResultingValue(yRange[0]) + ", " + "Limit " + yAxisMinimum);
-      writeComment("Y-min within range: " + (spatialFormat.getResultingValue(yRange[0]) >= yAxisMinimum));
-      writeComment("toolpath Y max: " + (spatialFormat.getResultingValue(yRange[1]) + ", " + "Limit " + yAxisMaximum));
-      writeComment("Y-max within range: " + (spatialFormat.getResultingValue(yRange[1]) <= yAxisMaximum));
+      writeComment(
+        "toolpath X minimum= " + xFormat.format(xRange[0]) + ", " + "Limit= " + xFormat.format(xAxisMinimum) + ", " +
+        "within range= " + (xFormat.getResultingValue(xRange[0]) >= xFormat.getResultingValue(xAxisMinimum))
+      );
+      writeComment(
+        "toolpath Y minimum= " + spatialFormat.getResultingValue(yRange[0]) + ", " + "Limit= " + yAxisMinimum + ", " +
+        "within range= " + (spatialFormat.getResultingValue(yRange[0]) >= yAxisMinimum)
+      );
+      writeComment(
+        "toolpath Y maximum= " + (spatialFormat.getResultingValue(yRange[1]) + ", " + "Limit= " + yAxisMaximum) + ", " +
+        "within range= " + (spatialFormat.getResultingValue(yRange[1]) <= yAxisMaximum)
+      );
+      writeln("");
     }
 
     if (getMachiningDirection(currentSection) == MACHINING_DIRECTION_RADIAL) { // G19 plane
@@ -2804,11 +2830,11 @@ function onRewindMachine(_a, _b, _c) {
   } else {
     position = machineConfiguration.getOrientation(getCurrentDirection()).getTransposed().multiply(retractPosition);
   }
-  if(_b != 0){
-  onLinear(position.x, position.y, position.z, safeRetractFeed);
-  
-  //Position to safe machine position for rewinding axes
-  moveToSafeRetractPosition(false);
+  if (_b != 0) {
+    onLinear(position.x, position.y, position.z, safeRetractFeed);
+
+    //Position to safe machine position for rewinding axes
+    moveToSafeRetractPosition(false);
   }
   // Rotate axes to new position above reentry position
   xOutput.disable();
@@ -2823,15 +2849,15 @@ function onRewindMachine(_a, _b, _c) {
   if (currentSection.getOptimizedTCPMode() != 0) {
     position = machineConfiguration.getOrientation(new Vector(_a, _b, _c)).getTransposed().multiply(retractPosition);
   }
-  if(_b != 0){
-  returnFromSafeRetractPosition(position);
+  if (_b != 0) {
+    returnFromSafeRetractPosition(position);
 
-  // Plunge tool back to original position
-  if (currentSection.getOptimizedTCPMode() != 0) {
-    currentTool = machineConfiguration.getOrientation(new Vector(_a, _b, _c)).getTransposed().multiply(currentTool);
+    // Plunge tool back to original position
+    if (currentSection.getOptimizedTCPMode() != 0) {
+      currentTool = machineConfiguration.getOrientation(new Vector(_a, _b, _c)).getTransposed().multiply(currentTool);
+    }
+    onLinear(currentTool.x, currentTool.y, currentTool.z, safePlungeFeed);
   }
-  onLinear(currentTool.x, currentTool.y, currentTool.z, safePlungeFeed);
-}
 }
 // End of onRewindMachine logic
 
@@ -3250,10 +3276,10 @@ function getCommonCycle(x, y, z, r) {
     return [xOutput.format(getModulus(x, y)), cOutput.format(currentC),
       zOutput.format(z),
       conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
-  } else if(machineState.axialCenterDrilling){
+  } else if (machineState.axialCenterDrilling) {
     return [xOutput.format(x), yOutput.format(y),
-      zOutput.format(z), conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
-  }  else {
+    zOutput.format(z), conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+  } else {
 // TAG
     cOutput.reset();
     return [xOutput.format(x), yOutput.format(y),
@@ -3376,8 +3402,8 @@ function onCyclePoint(x, y, z) {
 
   var rapto = 0;
   if (isFirstCyclePoint()) { // first cycle point
-    if(!machineState.axialCenterDrilling){
-    onCommand(COMMAND_LOCK_MULTI_AXIS);
+    if (!machineState.axialCenterDrilling) {
+      onCommand(COMMAND_LOCK_MULTI_AXIS);
     }
 
     rapto = cycle.clearance - cycle.retract;
@@ -3525,7 +3551,8 @@ function onParameter(name, value) {
     } else if (String(value).toUpperCase() == "KORTE RETRACT") {
       if (promptKey2(localize("DisableRetract"), localize("Take care, a part of your program is without safety retracts! Check it carefully!"), "OC") == "C") {
         error(localize("Aborted by user."));
-       return;} 
+        return;
+      }
       korteRetract = true;
     } else if (String(value).toUpperCase() == "KORTE RETRACT UIT") {
       korteRetract = false;
@@ -3806,10 +3833,14 @@ function onCommand(command) {
   setCoolant(COOLANT_FLOOD, machineState.currentTurret);
     break;
   case COMMAND_LOCK_MULTI_AXIS:
-    writeBlock(cAxisBrakeModal.format(getCode("LOCK_MULTI_AXIS", getSpindle(true))), "(LOCK MULTI AXIS)");
+    var code = cAxisBrakeModal.format(getCode("LOCK_MULTI_AXIS", getSpindle(true)));
+    var info = code ? "(LOCK MULTI AXIS)" : "";
+    writeBlock(code, info);
     break;
   case COMMAND_UNLOCK_MULTI_AXIS:
-    writeBlock(cAxisBrakeModal.format(getCode("UNLOCK_MULTI_AXIS", getSpindle(true))), "(UNLOCK MULTI AXIS)");
+    var code = cAxisBrakeModal.format(getCode("UNLOCK_MULTI_AXIS", getSpindle(true)));
+    var info = code ? "(UNLOCK MULTI AXIS)" : "";
+    writeBlock(code, info);
     break;
   case COMMAND_START_CHIP_TRANSPORT:
     writeBlock(mFormat.format(244));
@@ -4018,14 +4049,6 @@ function onSectionEnd() {
     writeBlock(gFormat.format(98)); // turn on collision monitor
   }
 
-  // deactivate Y-axis
-  if (gotYAxis && machineState.yAxisModeIsActive) {
-    writeBlock(gMotionModal.format(0), yOutput.format(0));
-    onCommand(COMMAND_UNLOCK_MULTI_AXIS);
-    writeBlock(gPolarModal.format(getCode("DISABLE_Y_AXIS", true)), "(Y AXIS MODE OFF)");
-    yOutput.disable();
-  }
-
   // if (properties.gotPartCatcher && partCutoff && currentSection.partCatcher) {
   //   engagePartCatcher(false);
   // }
@@ -4198,6 +4221,18 @@ function onClose() {
     writeBlock(mFormat.format(866));
   }
 
+  if (machineState.yAxisModeIsActive) {
+    if (!retracted) {
+      error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
+      return;
+    }
+    writeBlock(gMotionModal.format(0), yOutput.format(0));
+    onCommand(COMMAND_UNLOCK_MULTI_AXIS);
+    var code = gPolarModal.format(getCode("DISABLE_Y_AXIS", true));
+    var info = code ? "(Y AXIS MODE OFF)" : "";
+    writeBlock(code, info);
+    yOutput.disable();
+  }
 
   writeln("");
   onImpliedCommand(COMMAND_END);
