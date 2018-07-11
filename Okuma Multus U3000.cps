@@ -1803,6 +1803,9 @@ function onSection() {
       // activate Y-axis
     if ((getSpindle(false) == SPINDLE_LIVE) && !machineState.usePolarMode && !machineState.useXZCMode) {
       gPlaneModal.reset();
+      if (insertToolCall) { // re-enable Y axis mode again if there is a tool change
+        gPolarModal.reset();
+      }
       var code = gPolarModal.format(getCode("ENABLE_Y_AXIS", true));
       var info = code ? "(Y AXIS MODE ON)" : "";
       writeBlock(code, info);
