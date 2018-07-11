@@ -261,6 +261,7 @@ var isNewSpindle = false;
 var HSSC = false;
 var machiningMode = 0;
 var lowGear = false;
+var korteRetract = false;
 
 var machineState = {
   liveToolIsActive: undefined,
@@ -1005,8 +1006,10 @@ function setWorkPlane(abc) {
   onCommand(COMMAND_UNLOCK_MULTI_AXIS);
   zOutput.reset();
 
-  if (!retracted) {
-    if (currentSection.isPatterned()) {
+  if (!retracted) {    
+    if (currentSection.isPatterned() && korteRetract) {
+    writeComment("No Retract due to user - Manual NC");
+    } else if (currentSection.isPatterned()) {
       writeRetract(X);
     } else {
       if (!stockTransferIsActive) {
@@ -3519,6 +3522,13 @@ function onParameter(name, value) {
       HSSC = true;
     } else if (String(value).toUpperCase() == "HSSC-OFF") {
       HSSC = false;
+    } else if (String(value).toUpperCase() == "KORTE RETRACT") {
+      if (promptKey2(localize("DisableRetract"), localize("Take care, a part of your program is without safety retracts! Check it carefully!"), "OC") == "C") {
+        error(localize("Aborted by user."));
+       return;} 
+      korteRetract = true;
+    } else if (String(value).toUpperCase() == "KORTE RETRACT UIT") {
+      korteRetract = false;
     } else {
       invalid = true;
     }
