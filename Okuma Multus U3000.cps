@@ -1734,12 +1734,15 @@ function onSection() {
         writeBlock("MT=" + toolFormat.format(nextToolNumber) + "01" + formatComment("NEXT TOOL"));
       } else {
         // preload first tool
-        var section = getSection(0);
-        var firstToolNumber = section.getTool().number;
-        if (tool.number != firstToolNumber) {
-          if (section.getTool().turret != 2 && machineState.currentTurret != 2) {
-            writeBlock("MT=" + toolFormat.format(firstToolNumber) + "01" + formatComment("FIRST TOOL"));
+        for (var i = 0; i < getNumberOfSections(); ++i) {
+          var firstTool = getSection(i).getTool();
+          if (firstTool.turret != 2) { // find first tool on B-axis turret
+            var firstToolNumber = firstTool.number;
+            break; // found
           }
+        }
+        if (tool.number != firstToolNumber) {
+            writeBlock("MT=" + toolFormat.format(firstToolNumber) + "01" + formatComment("FIRST TOOL"));
         }
       }
     }
