@@ -1721,29 +1721,38 @@ function onSection() {
     }
 
     if (properties.preloadTool) { // only output next tool on B-axis turret
-      for (var i = getCurrentSectionId() + 1; i < getNumberOfSections(); ++i) {
-        var nextTool = getSection(i).getTool();
-        if (tool.number != nextTool.number) {
-          if (machineState.currentTurret != 2 && nextTool.turret != 2) {
-            var nextToolNumber = nextTool.number;
-            break; // found
-          }
-        }
-      }
-      if (nextToolNumber && nextToolNumber != 0) {
-        writeBlock("MT=" + toolFormat.format(nextToolNumber) + "01" + formatComment("NEXT TOOL"));
-      } else {
-        if (isLastSection()) {
-          // preload first tool
-          for (var i = 0; i < getNumberOfSections(); ++i) {
-            var firstTool = getSection(i).getTool();
-            if (firstTool.turret != 2) { // find first tool on B-axis turret
-              var firstToolNumber = firstTool.number;
+      if (machineState.currentTurret != 2) {
+        var nextToolNumber = 0;
+        for (var i = getCurrentSectionId() + 1; i < getNumberOfSections(); ++i) {
+          var nextTool = getSection(i).getTool();
+          if (tool.number != nextTool.number) {
+            if (machineState.currentTurret != 2 && nextTool.turret != 2) {
+              nextToolNumber = nextTool.number;
               break; // found
             }
           }
-          if (tool.number != firstToolNumber) {
+        }
+        if (nextToolNumber && nextToolNumber != 0) {
+          writeBlock("MT=" + toolFormat.format(nextToolNumber) + "01" + formatComment("NEXT TOOL"));
+        } else {
+          // preload first tool
+          var lastToolOnUpperTurret = false;
+          for (var i = getCurrentSectionId(); i < getNumberOfSections(); ++i) {
+            if (getSection(i).getTool().turret == 0) {
+              lastToolOnUpperTurret = true;
+              break;
+            }
+          }
+          if (lastToolOnUpperTurret) {
+            for (var i = 0; i < getNumberOfSections(); ++i) {
+              if (getSection(i).getTool().turret != 2) { // find first tool on B-axis turret
+                var firstToolNumber = getSection(i).getTool().number;
+                break; // found
+              }
+            }
+            if (tool.number != firstToolNumber) {
             writeBlock("MT=" + toolFormat.format(firstToolNumber) + "01" + formatComment("FIRST TOOL"));
+            }
           }
         }
       }
