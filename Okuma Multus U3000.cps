@@ -1327,6 +1327,9 @@ function onSection() {
         onCommand(COMMAND_STOP_SPINDLE);
         forceUnlockMultiAxis();
         if (tempSpindle != SPINDLE_LIVE) {
+          if(!currentSection.isPatterned()){      
+            writeRetract();
+          }
           writeBlock(gPlaneModal.format(getCode("ENABLE_TURNING", getSpindle(true))));
         } else {
           onCommand(COMMAND_UNLOCK_MULTI_AXIS);
@@ -4059,6 +4062,7 @@ function onSectionEnd() {
     writeBlock("NOEX RZ1=VSIOZ");
     writeBlock(gFormat.format(254), "X=RX1 Y=RY1 Z=RZ1", bOutput.format(abc.y), cOutput.format(abc.z));
     writeBlock(gFormat.format(0), "X" + xFormat.format(1500)); // retract
+    writeBlock(gFormat.format(0), "Z" + xFormat.format(655)); // retract
     writeBlock(gFormat.format(0), bOutput.format(0));
     writeBlock(mFormat.format(404)); // lock B-axis
     writeBlock(gFormat.format(148) + " (B-AXIS MODE OFF)");
