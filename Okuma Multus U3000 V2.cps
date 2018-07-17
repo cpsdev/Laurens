@@ -1314,6 +1314,14 @@ function onSection() {
   }
   newSpindle = tempSpindle != previousSpindle;
   // End the previous section if a new tool is selected
+
+  if (insertToolCall || newSpindle || newWorkOffset || newWorkPlane) {
+    if (G127isActive) {
+  writeBlock(gFormat.format(126) + " (" + "DISABLE TILTED WORKPLANE" + ")");
+  G127isActive = false;
+  forceWorkPlane();
+}
+}
   if (!isFirstSection() && insertToolCall &&
       !(stockTransferIsActive && partCutoff)) {
         if (stockTransferIsActive) {
@@ -1367,13 +1375,7 @@ function onSection() {
   if (!(stockTransferIsActive && partCutoff)) {
     stockTransferIsActive = false;
   }
-    if (insertToolCall || newSpindle || newWorkOffset || newWorkPlane) {
-          if (G127isActive) {
-        writeBlock(gFormat.format(126) + " (" + "DISABLE TILTED WORKPLANE" + ")");
-        G127isActive = false;
-        forceWorkPlane();
-      }
-    }
+
 
   if (insertToolCall || newSpindle || newWorkOffset || newWorkPlane && !currentSection.isPatterned()) {
     // retract to safe plane
