@@ -3849,7 +3849,11 @@ function setSpindle(tappingMode, forceRPMMode) {
   if (getSpindle(false) == SPINDLE_LIVE) {
     writeBlock(spindleMode, scode, spindleDir, gearCode);
   } else {
-    writeBlock(spindleMode, scode, spindleDir, constantSpeedCuttingTurret, gearCode);
+    if (gotMultiTurret) {
+      writeBlock(spindleMode, scode, spindleDir, constantSpeedCuttingTurret, gearCode);}
+      else{
+          writeBlock(spindleMode, scode, spindleDir, gearCode);   
+      }
   }
   // wait for spindle here if required
 }
