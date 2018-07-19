@@ -45,7 +45,7 @@ maximumCircularSweep = toRad(90); // reduced sweep to break up circular moves on
 allowHelicalMoves = true;
 allowedCircularPlanes = undefined; // allow any circular motion
 allowSpiralMoves = false;
-highFeedrate = (unit == IN) ? 470 : 12000;
+highFeedrate = (unit == IN) ? 470 : 5000;
 
 
 // user-defined properties
@@ -1378,6 +1378,7 @@ function onSection() {
       sOutput.reset();
       sbOutput.reset();
     }
+
   }
 
   // Write out notes
@@ -1899,6 +1900,7 @@ function getHighfeedrate(radius) {
       var O = 2 * Math.PI * radius; // in/rev
       rpm = tool.surfaceSpeed/O; // in/min div in/rev => rev/min
     }
+
     return highFeedrate/rpm; // in/min div rev/min => in/rev
   }
   return highFeedrate;
@@ -2743,7 +2745,7 @@ function onCyclePoint(x, y, z) {
           writeBlock(
             gCycleModal.format(reverseTap ? 78 : 77),
             getCommonCycle(x, y, z, 0),
-            feedOutput.format(F)
+            feedOutput.format(tool.threadPitch)
           );
           onCommand(COMMAND_START_SPINDLE);
         }
@@ -2755,7 +2757,7 @@ function onCyclePoint(x, y, z) {
           getCommonCycle(x, y, z, rapto),
           "D" + spatialFormat.format(cycle.depth + cycle.retract - cycle.stock),
           conditional(P > 0, eOutput.format(P)),
-          feedOutput.format(F)
+          feedOutput.format(tool.threadPitch)
         );
       }
       break;
@@ -2931,6 +2933,10 @@ function setSpindle(tappingMode, forceRPMMode) {
     spindleSpeed = tool.surfaceSpeed * ((unit == MM) ? 1/1000.0 : 1/12.0);
     if (forceRPMMode) { // RPM mode is forced until move to initial position
       var initialPosition = getFramePosition(currentSection.getInitialPosition());
+      if(initialPosition.x <= 0){
+        initialPosition.x = 0;
+      }
+      var maximumSpindleSpeed = (tool.maximumSpindleSpeed > 0) ? Math.min(tool.maximumSpindleSpeed, properties.maximumSpindleSpeed) : properties.maximumSpindleSpeed;
       spindleSpeed = Math.min((spindleSpeed * ((unit == MM) ? 1000.0 : 12.0) / (Math.PI*initialPosition.x*2)), maximumSpindleSpeed);
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
     } else {
