@@ -1405,6 +1405,9 @@ function onSection() {
         return;
     }
     machineState.currentTurret = turret;
+  } else {
+    machineState.currentTurret = 1;
+
   }
 
   if (insertToolCall) {
@@ -1667,7 +1670,7 @@ function onSection() {
         if (found) {
           writeBlock("TD=" + orientationNumberFormat.format(orientationNumber) + toolFormat.format(tool.number) + " M323");
         } else {
-          writeBlock("TD=" + orientationNumberFormat.format(currentSection.spindle == SPINDLE_PRIMARY ? 1 : 7) + toolFormat.format(tool.number) + " M323");
+          writeBlock("TD=" + orientationNumberFormat.format(currentSection.spindle == SPINDLE_PRIMARY ? (leftHand ? 2 : 1) : (leftHand ? 7 : 8))  + toolFormat.format(tool.number) + " M323");
           writeBlock("BA=" + abcFormat.format(abc.y), gFormat.format(52));
         }
       } else { // milling
@@ -3280,16 +3283,16 @@ function getCommonCycle(x, y, z, r) {
     cOutput.reset();
     return [xOutput.format(getModulus(x, y)), cOutput.format(currentC),
       zOutput.format(z),
-      conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+      (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r)];
   } else if (machineState.axialCenterDrilling) {
     return [xOutput.format(x), yOutput.format(y),
-    zOutput.format(z), conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+    zOutput.format(z), (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r)];
   } else {
 // TAG
     cOutput.reset();
     return [xOutput.format(x), yOutput.format(y),
       zOutput.format(z), cOutput.format(currentWorkPlaneABC.z),
-     conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+     (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r)];
   }
 }
 
@@ -3777,7 +3780,7 @@ function setSpindle(tappingMode, forceRPMMode) {
   var spindleMode;
   var constantSpeedCuttingTurret;
   gSpindleModeModal.reset();
-  
+  var maximumSpindleSpeed = (tool.maximumSpindleSpeed > 0) ? Math.min(tool.maximumSpindleSpeed, properties.maximumSpindleSpeed) : properties.maximumSpindleSpeed;
   if ((getSpindle(true) == SPINDLE_SUB) && !properties.gotSecondarySpindle) {
     error(localize("Secondary spindle is not available."));
     return;
@@ -3797,6 +3800,9 @@ function setSpindle(tappingMode, forceRPMMode) {
     spindleSpeed = tool.surfaceSpeed * ((unit == MM) ? 1/1000.0 : 1/12.0);
     if (forceRPMMode) { // RPM mode is forced until move to initial position
       var initialPosition = getFramePosition(currentSection.getInitialPosition());
+      if(initialPosition.x <= 0){
+        initialPosition.x = 0;
+      }
       spindleSpeed = Math.min((spindleSpeed * ((unit == MM) ? 1000.0 : 12.0) / (Math.PI*Math.abs(initialPosition.x*2))), maximumSpindleSpeed);
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
     } else {
