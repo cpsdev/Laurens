@@ -1430,6 +1430,9 @@ function onSection() {
         return;
     }
     machineState.currentTurret = turret;
+  } else {
+    machineState.currentTurret = 1;
+
   }
 
   if (insertToolCall) {
@@ -1692,7 +1695,7 @@ function onSection() {
         if (found) {
           writeBlock("TD=" + orientationNumberFormat.format(orientationNumber) + toolFormat.format(tool.number) + " M323");
         } else {
-          writeBlock("TD=" + orientationNumberFormat.format(currentSection.spindle == SPINDLE_PRIMARY ? 1 : 7) + toolFormat.format(tool.number) + " M323");
+          writeBlock("TD=" + orientationNumberFormat.format(currentSection.spindle == SPINDLE_PRIMARY ? (leftHand ? 2 : 1) : (leftHand ? 7 : 8)) + toolFormat.format(tool.number) + " M323");
           writeBlock("BA=" + abcFormat.format(abc.y), gFormat.format(52));
         }
       } else { // milling
@@ -3802,7 +3805,7 @@ function setSpindle(tappingMode, forceRPMMode) {
   var spindleMode;
   var constantSpeedCuttingTurret;
   gSpindleModeModal.reset();
-  
+  var maximumSpindleSpeed = (tool.maximumSpindleSpeed > 0) ? Math.min(tool.maximumSpindleSpeed, properties.maximumSpindleSpeed) : properties.maximumSpindleSpeed;
   if ((getSpindle(true) == SPINDLE_SUB) && !properties.gotSecondarySpindle) {
     error(localize("Secondary spindle is not available."));
     return;
@@ -3822,6 +3825,9 @@ function setSpindle(tappingMode, forceRPMMode) {
     spindleSpeed = tool.surfaceSpeed * ((unit == MM) ? 1/1000.0 : 1/12.0);
     if (forceRPMMode) { // RPM mode is forced until move to initial position
       var initialPosition = getFramePosition(currentSection.getInitialPosition());
+      if(initialPosition.x <= 0){
+        initialPosition.x = 0;
+      }
       spindleSpeed = Math.min((spindleSpeed * ((unit == MM) ? 1000.0 : 12.0) / (Math.PI*Math.abs(initialPosition.x*2))), maximumSpindleSpeed);
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
     } else {
@@ -4110,6 +4116,9 @@ function onSectionEnd() {
     // cancel SFM mode to preserve spindle speed
     if (tool.getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED) {
       var initialPosition = getCurrentPosition();
+      if(initialPosition.x <= 0){
+        initialPosition.x = 0;
+      }
       //var spindleDir = mFormat.format(getPreviousSection().getTool().clockwise ? getCode("START_SPINDLE_CW", getSpindle(false)) : getCode("START_SPINDLE_CCW", getSpindle(false)));
       var maximumSpindleSpeed = (tool.maximumSpindleSpeed > 0) ? Math.min(tool.maximumSpindleSpeed, properties.maximumSpindleSpeed) : properties.maximumSpindleSpeed;
       writeBlock(gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false))), sOutput.format(Math.min((tool.surfaceSpeed) / (Math.PI * initialPosition.x * 2), maximumSpindleSpeed)));
