@@ -34,7 +34,7 @@ vendor = "OKUMA";
 vendorUrl = "http://www.okuma.com";
 legal = "Copyright (C) 2012-2018 by Autodesk, Inc.";
 certificationLevel = 2;
-minimumRevision = 24000;
+minimumRevision = 40783;
 
 longDescription = "Okuma Multus U3000 (OSP-300 control) post with support for mill-turn.";
 
@@ -262,7 +262,6 @@ var HSSC = false;
 var machiningMode = 0;
 var lowGear = false;
 var korteRetract = false;
-var onSpindleSpeedForce = false;
 
 var machineState = {
   liveToolIsActive: undefined,
@@ -1459,8 +1458,6 @@ function onSection() {
     writeBlock(gSelectSpindleModal.format(getCode("SELECT_SPINDLE", getSpindle(true))));
   }
 
-
-
   if (false) { // TAG testing 270 271 272
     if (gotYAxis && (getSpindle(false) == SPINDLE_LIVE) && !machineState.usePolarMode && !machineState.useXZCMode) {
       writeBlock(gPolarModal.format(getCode("ENABLE_Y_AXIS", true)), "(Y AXIS MODE ON)");
@@ -1903,22 +1900,22 @@ function onSection() {
   if ((insertToolCall ||
       newSpindle ||
       isFirstSection() ||
-      (rpmFormat.areDifferent(tool.spindleRPM, currentRPM)) ||
+      (rpmFormat.areDifferent(spindleSpeed, currentRPM)) ||
       (tool.clockwise != getPreviousSection().getTool().clockwise)) &&
       !stockTransferIsActive) {
-    currentRPM = tool.spindleRPM;
+    currentRPM = spindleSpeed;
     if (machineState.isTurningOperation) {
-      if (tool.spindleRPM > 3200) {
+      if (spindleSpeed > 3200) {
         warning(subst(localize("Spindle speed exceeds maximum value for operation \"%1\"."), getOperationComment()));
       }
     } else {
-      if (tool.spindleRPM > 6000) {
+      if (spindleSpeed > 6000) {
         warning(subst(localize("Spindle speed exceeds maximum value for operation \"%1\"."), getOperationComment()));
       }
     }
 
     // Turn spindle on
-    setSpindle(false, true, 0);
+    setSpindle(false, true);
     if (HSSC) {
       writeBlock(mFormat.format(695));
     }
@@ -2324,7 +2321,7 @@ function getHighfeedrate(radius) {
     if (toDeg(radius) <= 0) {
       radius = toPreciseUnit(0.1, MM);
     }
-    var rpm = tool.spindleRPM; // rev/min
+    var rpm = spindleSpeed; // rev/min
     if (currentSection.getTool().getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED) {
       var O = 2 * Math.PI * radius; // in/rev
       rpm = tool.surfaceSpeed/O; // in/min div in/rev => rev/min
@@ -2348,6 +2345,9 @@ function onRapid(_x, _y, _z) {
       }
       setCAxisDirection(cOutput.getCurrent(), c);
       writeBlock(gMotionModal.format(0), x, c, z);
+      if (c && (cycleExpanded == true && !isFirstCyclePoint())) {
+        onCommand(COMMAND_LOCK_MULTI_AXIS); // lock for expanded cycles
+      }
       forceFeed();
       return;
     }
@@ -3355,6 +3355,12 @@ function writeCycleClearance(plane, clearance) {
   }
 }
 
+function lockAxis() {
+  if (!machineState.axialCenterDrilling) {
+    onCommand(COMMAND_LOCK_MULTI_AXIS);
+  }
+}
+
 var skipThreading = false;
 function onCyclePoint(x, y, z) {
   writeBlock(gPlaneModal.format(17)); // TAG check me
@@ -3443,22 +3449,14 @@ function onCyclePoint(x, y, z) {
     forceFeed();
     return;
   }
-  if(cycleType == "gun-drilling"){
-    writtenExpandedCycle = true;
-    } else {
-    writtenExpandedCycle = false;
-    } 
   var lockCode = "";
 
   var rapto = 0;
-  if (isFirstCyclePoint()|| writtenExpandedCycle) { // first cycle point
-    if (!machineState.axialCenterDrilling) {
-      onCommand(COMMAND_LOCK_MULTI_AXIS);
-    }
-
+  // if (isFirstCyclePoint()|| writtenExpandedCycle) { // first cycle point
+  if (isFirstCyclePoint()) { // first cycle point
     rapto = cycle.clearance - cycle.retract;
 
-    var F = (gFeedModeModal.getCurrent() == 99 ? cycle.feedrate/tool.spindleRPM : cycle.feedrate);
+    var F = (gFeedModeModal.getCurrent() == 99 ? cycle.feedrate/spindleSpeed : cycle.feedrate);
     var P = (cycle.dwell == 0) ? 0 : clamp(1, cycle.dwell, 99999999); // in seconds
     
     if (machineState.axialCenterDrilling) {
@@ -3467,6 +3465,7 @@ function onCyclePoint(x, y, z) {
     }
     switch (cycleType) {
     case "drilling":
+      lockAxis();
       writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
       writeBlock(
@@ -3477,6 +3476,7 @@ function onCyclePoint(x, y, z) {
       );
       break;
     case "counter-boring":
+      lockAxis();
       writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
       writeBlock(
@@ -3488,6 +3488,7 @@ function onCyclePoint(x, y, z) {
       );
       break;
     case "deep-drilling":
+      lockAxis();
       writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
       writeBlock(
@@ -3500,7 +3501,8 @@ function onCyclePoint(x, y, z) {
       );
       break;
     case "chip-breaking":
-    writeCycleClearance(plane, cycle.clearance);
+      lockAxis();
+      writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
       writeBlock(
         gCycleModal.format(machineState.axialCenterDrilling ? 74 : 183),
@@ -3519,6 +3521,7 @@ function onCyclePoint(x, y, z) {
         if (P != 0) {
           expandCyclePoint(x, y, z);
         } else {
+          lockAxis();
           writeCycleClearance(plane, cycle.retract);
           writeBlock(
             gCycleModal.format(reverseTap ? 78 : 77),
@@ -3528,6 +3531,7 @@ function onCyclePoint(x, y, z) {
           onCommand(COMMAND_START_SPINDLE);
         }
       } else {
+        lockAxis();
         writeCycleClearance(plane, cycle.clearance);
         localZOutput.reset();
         writeBlock(
@@ -3541,6 +3545,7 @@ function onCyclePoint(x, y, z) {
       break;
     case "reaming":
     case "boring":
+      lockAxis();
       writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
       writeBlock(
@@ -3552,6 +3557,18 @@ function onCyclePoint(x, y, z) {
       );
       break;
     case "gun-drilling":
+      lockAxis();
+      expandCyclePoint(x, y, z);
+      break;
+    case "thread-milling":
+    case "bore-milling":
+    case "circular-pocket-milling":
+    case "back-boring":
+    case "fine-boring":
+      expandCyclePoint(x, y, z);
+      break;
+    /*
+      case "gun-drilling":
       validate(spindleAxis == TOOL_AXIS_Z);
      
        var rapidRetract = true;
@@ -3606,13 +3623,14 @@ function onCyclePoint(x, y, z) {
            expand.expandLinearZ(cycle.retract, cycle.positioningFeedrate);
          }
          expand.expandRapidZ(cycle.clearance);
-         break; 
+         break;
+         */
     default:
-     onCommand(COMMAND_UNLOCK_MULTI_AXIS); 
       expandCyclePoint(x, y, z);
     }
   } else { // position to subsequent cycle points
     if (cycleExpanded) {
+      onCommand(COMMAND_UNLOCK_MULTI_AXIS);
       expandCyclePoint(x, y, z);
     } else {
       var step = 0;
@@ -3873,15 +3891,20 @@ function setCoolant_OLD(coolant) {
 }
 */
 
-function onSpindleSpeed(spindleSpeed) {
-  onSpindleSpeedForce = true;
-  setSpindle(false, false, spindleSpeed);
+var lastSpindleSpeed = 0;
+function onSpindleSpeed(_spindleSpeed) {
+  spindleSpeed = _spindleSpeed;
+  var useConstantSurfaceSpeed = currentSection.getTool().getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED;
+  var _newSpeed = useConstantSurfaceSpeed ? tool.surfaceSpeed * ((unit == MM) ? 1 / 1000.0 : 1 / 12.0) : _spindleSpeed;
+  if (rpmFormat.areDifferent(_newSpeed, lastSpindleSpeed)) {
+    setSpindle(false, false);
+  }
+  return;
 }
 
-
-function setSpindle(tappingMode, forceRPMMode, spindleSpeed) {
+function setSpindle(tappingMode, forceRPMMode) {
   var spindleDir;
-  var spindleSpeed;
+  var _spindleSpeed;
   var spindleMode;
   var constantSpeedCuttingTurret;
   gSpindleModeModal.reset();
@@ -3902,32 +3925,25 @@ function setSpindle(tappingMode, forceRPMMode, spindleSpeed) {
       error(localize("Constant surface speed not supported with live tool."));
       return;
     }
-    spindleSpeed = tool.surfaceSpeed * ((unit == MM) ? 1/1000.0 : 1/12.0);
+    _spindleSpeed = tool.surfaceSpeed * ((unit == MM) ? 1/1000.0 : 1/12.0);
     if (forceRPMMode) { // RPM mode is forced until move to initial position
       var initialPosition = getFramePosition(currentSection.getInitialPosition());
-      if(initialPosition.x <= 0){
+      if (initialPosition.x <= 0) {
         initialPosition.x = 0;
       }
-      spindleSpeed = Math.min((spindleSpeed * ((unit == MM) ? 1000.0 : 12.0) / (Math.PI*Math.abs(initialPosition.x*2))), maximumSpindleSpeed);
+      _spindleSpeed = Math.min((_spindleSpeed * ((unit == MM) ? 1000.0 : 12.0) / (Math.PI*Math.abs(initialPosition.x*2))), maximumSpindleSpeed);
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
     } else {
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_ON", getSpindle(false)));
     }
   } else {
-
-    if(onSpindleSpeedForce == true){
-      onSpindleSpeed = false;
-    } else if(hasParameter("operation:positioningSpindleSpeed")){
-      spindleSpeed = getParameter("operation:positioningSpindleSpeed");
-    } else{
-      spindleSpeed = tool.spindleRPM;
-    }
+    _spindleSpeed = spindleSpeed;
     spindleMode = getSpindle(false) == SPINDLE_LIVE ? "" : gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
   }
   constantSpeedCuttingTurret = gFormat.format((tool.turret == 2) ? 111 : 110);
-  var scode = getSpindle(false) == SPINDLE_LIVE ? sbOutput.format(spindleSpeed) : sOutput.format(spindleSpeed);
+  var scode = getSpindle(false) == SPINDLE_LIVE ? sbOutput.format(_spindleSpeed) : sOutput.format(_spindleSpeed);
   var gearCode;
-  if (spindleSpeed < 4000) {
+  if (_spindleSpeed < 4000) {
     gearCode =  mFormat.format(241);
   } else {
     gearCode =  mFormat.format(242);
@@ -3943,11 +3959,12 @@ function setSpindle(tappingMode, forceRPMMode, spindleSpeed) {
     writeBlock(spindleMode, scode, spindleDir, gearCode);
   } else {
     if (gotMultiTurret) {
-      writeBlock(spindleMode, scode, spindleDir, constantSpeedCuttingTurret, gearCode);}
-      else{
-          writeBlock(spindleMode, scode, spindleDir, gearCode);   
-      }
+      writeBlock(spindleMode, scode, spindleDir, constantSpeedCuttingTurret, gearCode);
+    } else {
+      writeBlock(spindleMode, scode, spindleDir, gearCode);
+    }
   }
+  lastSpindleSpeed = _spindleSpeed;
   // wait for spindle here if required
 }
 
