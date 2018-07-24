@@ -262,6 +262,7 @@ var HSSC = false;
 var machiningMode = 0;
 var lowGear = false;
 var korteRetract = false;
+var onSpindleSpeedForce = false;
 
 var machineState = {
   liveToolIsActive: undefined,
@@ -3430,11 +3431,15 @@ function onCyclePoint(x, y, z) {
     forceFeed();
     return;
   }
-
+  if(cycleType == "gun-drilling"){
+    writtenExpandedCycle = true;
+    } else {
+    writtenExpandedCycle = false;
+    } 
   var lockCode = "";
 
   var rapto = 0;
-  if (isFirstCyclePoint()) { // first cycle point
+  if (isFirstCyclePoint()|| writtenExpandedCycle) { // first cycle point
     if (!machineState.axialCenterDrilling) {
       onCommand(COMMAND_LOCK_MULTI_AXIS);
     }
@@ -3534,6 +3539,57 @@ function onCyclePoint(x, y, z) {
         feedOutput.format(F)
       );
       break;
+      case "gun-drilling":
+      validate(spindleAxis == TOOL_AXIS_Z);
+     
+       var rapidRetract = true;
+       var bottom = cycle.stock - cycle.depth; 
+       validate((cycle.stock - cycle.startingDepth) >= bottom, localize("Invalid starting depth."));
+     
+       var usePositioningSpeed = Math.abs(cycle.positioningSpindleSpeed - tool.spindleRPM) >= 1e-6;
+       
+       if (!cycle.stopSpindle && usePositioningSpeed) {
+         onSpindleSpeed(cycle.positioningSpindleSpeed);
+       }
+       if (cycle.stopSpindle) {
+         onCommand(COMMAND_STOP_SPINDLE); 
+       }
+       onCommand(COMMAND_UNLOCK_MULTI_AXIS); 
+         var expand = new ExpandCycle(x, y, z);
+         expand.expandPreliminaryZ(cycle.clearance);
+         if (cycle.retract < cycle.clearance) {
+           expand.expandRapidZ(cycle.retract); 
+         }
+         onCommand(COMMAND_LOCK_MULTI_AXIS);
+         expand.expandLinearZ(Math.max(cycle.stock - cycle.startingDepth, cycle.bottom), cycle.positioningFeedrate);
+
+         if (cycle.stopSpindle) {
+           onCommand(COMMAND_START_SPINDLE);
+         }
+         if (!cycle.stopSpindle) {
+           onSpindleSpeed(tool.spindleRPM);
+         }
+         expand.expandLinearZ(cycle.bottom+cycle.breakThroughDistance, cycle.feedrate);
+         expand.expandLinearZ(cycle.bottom, cycle.positioningFeedrate);
+     
+         if (cycle.dwell > 0) {
+           if (cycle.dwellDepth > 0) {
+             expand.expandLinearZ(cycle.bottom + cycle.dwellDepth, cycle.feedrate);
+           }
+           onDwell(cycle.dwell);
+         }
+         if (!rapidRetract) {
+           if (cycle.stopSpindle) {
+             onCommand(COMMAND_STOP_SPINDLE); 
+           } else {
+             if (usePositioningSpeed) {
+               onSpindleSpeed(cycle.positioningSpindleSpeed);
+             }
+           }
+           expand.expandLinearZ(cycle.retract, cycle.positioningFeedrate);
+         }
+         expand.expandRapidZ(cycle.clearance);
+         break;
     default:
       expandCyclePoint(x, y, z);
     }
@@ -3799,7 +3855,13 @@ function setCoolant_OLD(coolant) {
 }
 */
 
-function setSpindle(tappingMode, forceRPMMode) {
+function onSpindleSpeed(spindleSpeed) {
+  onSpindleSpeedForce = true;
+  setSpindle(false, false, spindleSpeed);
+}
+
+
+function setSpindle(tappingMode, forceRPMMode, spindleSpeed) {
   var spindleDir;
   var spindleSpeed;
   var spindleMode;
@@ -3834,7 +3896,14 @@ function setSpindle(tappingMode, forceRPMMode) {
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_ON", getSpindle(false)));
     }
   } else {
-    spindleSpeed = tool.spindleRPM;
+
+    if(onSpindleSpeedForce == true){
+      onSpindleSpeed = false;
+    } else if(hasParameter("operation:positioningSpindleSpeed")){
+      spindleSpeed = getParameter("operation:positioningSpindleSpeed");
+    } else{
+      spindleSpeed = tool.spindleRPM;
+    }
     spindleMode = getSpindle(false) == SPINDLE_LIVE ? "" : gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
   }
   constantSpeedCuttingTurret = gFormat.format((tool.turret == 2) ? 111 : 110);
