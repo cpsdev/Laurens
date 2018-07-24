@@ -2325,7 +2325,7 @@ function getHighfeedrate(radius) {
 function onRapid(_x, _y, _z) {
   if (machineState.useXZCMode) {
     if (cycleExpanded == true && !isFirstCyclePoint()) {
-      onCommand(COMMAND_LOCK_MULTI_AXIS); // unlock for expanded cycles
+      onCommand(COMMAND_UNLOCK_MULTI_AXIS); // unlock for expanded cycles
     }
     var start = getCurrentPosition();
     var dxy = getModulus(_x - start.x, _y - start.y);
