@@ -1376,6 +1376,20 @@ function onSection() {
   if (!(stockTransferIsActive && partCutoff)) {
     stockTransferIsActive = false;
   }
+  if (gotMultiTurret) {
+  if (machineState.yAxisModeIsActive && machineState.currentTurret == 1 && tool.turret == 2){
+    if (!retracted) {
+      error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
+      return;
+    }
+    writeBlock(gMotionModal.format(0), yOutput.format(0));
+    onCommand(COMMAND_UNLOCK_MULTI_AXIS);
+    var code = gPolarModal.format(getCode("DISABLE_Y_AXIS", true));
+    var info = code ? "(Y AXIS MODE OFF)" : "";
+    writeBlock(code, info);
+    yOutput.disable();
+    }
+  }
 
 
   if (insertToolCall || newSpindle || newWorkOffset || newWorkPlane && !currentSection.isPatterned()) {
@@ -1444,8 +1458,6 @@ function onSection() {
   if (properties.gotSecondarySpindle) {
     writeBlock(gSelectSpindleModal.format(getCode("SELECT_SPINDLE", getSpindle(true))));
   }
-
-
 
 
 
@@ -1613,7 +1625,7 @@ function onSection() {
     }
     setRotation(remaining);
   }
-  
+
   if (insertToolCall) {
     if (!stockTransferIsActive) {
       writeRetract();
@@ -3545,7 +3557,7 @@ function onCyclePoint(x, y, z) {
         feedOutput.format(F)
       );
       break;
-      case "gun-drilling":
+    case "gun-drilling":
       validate(spindleAxis == TOOL_AXIS_Z);
      
        var rapidRetract = true;
@@ -3600,7 +3612,7 @@ function onCyclePoint(x, y, z) {
            expand.expandLinearZ(cycle.retract, cycle.positioningFeedrate);
          }
          expand.expandRapidZ(cycle.clearance);
-         break;
+         break; 
     default:
       expandCyclePoint(x, y, z);
     }
