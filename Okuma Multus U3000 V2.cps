@@ -3569,8 +3569,13 @@ function onCyclePoint(x, y, z) {
          if (!cycle.stopSpindle) {
            onSpindleSpeed(tool.spindleRPM);
          }
+         if(cycle.breakThroughDistance < 0.1){
+          expand.expandLinearZ(cycle.bottom, cycle.feedrate);
+         } else {
          expand.expandLinearZ(cycle.bottom+cycle.breakThroughDistance, cycle.feedrate);
          expand.expandLinearZ(cycle.bottom, cycle.positioningFeedrate);
+         }
+
      
          if (cycle.dwell > 0) {
            if (cycle.dwellDepth > 0) {
@@ -3578,14 +3583,14 @@ function onCyclePoint(x, y, z) {
            }
            onDwell(cycle.dwell);
          }
+         if (cycle.stopSpindle) {
+          onCommand(COMMAND_STOP_SPINDLE); 
+        } else {
+          if (usePositioningSpeed) {
+            onSpindleSpeed(cycle.positioningSpindleSpeed);
+          }
+        }
          if (!rapidRetract) {
-           if (cycle.stopSpindle) {
-             onCommand(COMMAND_STOP_SPINDLE); 
-           } else {
-             if (usePositioningSpeed) {
-               onSpindleSpeed(cycle.positioningSpindleSpeed);
-             }
-           }
            expand.expandLinearZ(cycle.retract, cycle.positioningFeedrate);
          }
          expand.expandRapidZ(cycle.clearance);
