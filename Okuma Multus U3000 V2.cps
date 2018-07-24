@@ -2336,9 +2336,6 @@ function getHighfeedrate(radius) {
 
 function onRapid(_x, _y, _z) {
   if (machineState.useXZCMode) {
-    if (cycleExpanded == true && !isFirstCyclePoint()) {
-      onCommand(COMMAND_UNLOCK_MULTI_AXIS); // unlock for expanded cycles
-    }
     var start = getCurrentPosition();
     var dxy = getModulus(_x - start.x, _y - start.y);
     if (true || (dxy < getTolerance())) {
@@ -2415,9 +2412,6 @@ function getLineProjectionU(start, end, p) {
 
 function onLinear(_x, _y, _z, feed) {
   if (machineState.useXZCMode) {
-    if (cycleExpanded == true && !isFirstCyclePoint()) {
-      onCommand(COMMAND_LOCK_MULTI_AXIS); // unlock for expanded cycles
-    }
     if (maximumCircularSweep > toRad(179)) {
       error(localize("Maximum circular sweep must be below 179 degrees."));
       return;
@@ -3614,6 +3608,7 @@ function onCyclePoint(x, y, z) {
          expand.expandRapidZ(cycle.clearance);
          break; 
     default:
+     onCommand(COMMAND_UNLOCK_MULTI_AXIS); 
       expandCyclePoint(x, y, z);
     }
   } else { // position to subsequent cycle points
