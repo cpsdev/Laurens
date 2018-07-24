@@ -1906,7 +1906,7 @@ function onSection() {
     }
 
     // Turn spindle on
-    setSpindle(false, true);
+    setSpindle(false, true, 0);
     if (HSSC) {
       writeBlock(mFormat.format(695));
     }
