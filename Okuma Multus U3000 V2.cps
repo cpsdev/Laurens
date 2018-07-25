@@ -2238,6 +2238,11 @@ function updateMachiningMode(section) {
   checksum += machineState.useXZCMode ? 1 : 0;
   checksum += machineState.axialCenterDrilling ? 1 : 0;
   validate(checksum <= 1, localize("Internal post processor error."));
+  if(false){  // DEBUG
+  writeBlock("Polar Mode ="+ machineState.usePolarMode);
+  writeBlock("XZC Mode ="+ machineState.useXZCMode);
+  writeBlock("AxialCenterDrilling Mode ="+ machineState.axialCenterDrilling);
+  }
 }
 
 function doesCannedCycleIncludeYAxisMotion() {
@@ -2484,14 +2489,14 @@ function onLinear(_x, _y, _z, feed) {
           if (c && turnFirst) { // turn before moving along X after rotary has been reached
             turnFirst = false;
             setCAxisDirection(previousC, c);
-            writeBlock(compCode, gMotionModal.format(101), c, getFeed(feed));
+            writeBlock(compCode, gMotionModal.format(1), c, getFeed(feed));
             c = undefined; // dont output again
             compCode = undefined;
           }
           if (c != undefined) {
             setCAxisDirection(cOutput.getCurrent(), c);
           }
-          writeBlock(compCode, gMotionModal.format(101), xOutput.format(getModulus(p.x, p.y)), c, zOutput.format(p.z), getFeed(feed));
+          writeBlock(compCode, gMotionModal.format(1), xOutput.format(getModulus(p.x, p.y)), c, zOutput.format(p.z), getFeed(feed));
           compCode = undefined;
         }
 
@@ -2508,7 +2513,7 @@ function onLinear(_x, _y, _z, feed) {
     } else {
       var currentC = getCClosest(_x, _y, cOutput.getCurrent());
       setCAxisDirection(cOutput.getCurrent(), currentC);
-      writeBlock(compCode, gMotionModal.format(101), xOutput.format(getModulus(_x, _y)), cOutput.format(currentC), zOutput.format(_z), getFeed(feed));
+      writeBlock(compCode, gMotionModal.format(1), xOutput.format(getModulus(_x, _y)), cOutput.format(currentC), zOutput.format(_z), getFeed(feed));
       compCode = undefined;
     }
     return;
@@ -3099,6 +3104,20 @@ function onCycle() {
         writeBlock(gFormat.format(13));
         writeBlock(gFormat.format(140));
         writeRetract();
+        if (gotMultiTurret) {
+          if (machineState.yAxisModeIsActive){
+            if (!retracted) {
+              error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
+              return;
+            }
+            writeBlock(gMotionModal.format(0), yOutput.format(0));
+            onCommand(COMMAND_UNLOCK_MULTI_AXIS);
+            var code = gPolarModal.format(getCode("DISABLE_Y_AXIS", true));
+            var info = code ? "(Y AXIS MODE OFF)" : "";
+            writeBlock(code, info);
+            yOutput.disable();
+            }
+          }
         onCommand(COMMAND_OPTIONAL_STOP);
         //writeBlock(cAxisEnableModal.format(getCode("DISABLE_C_AXIS", getSpindle(true))));
         writeBlock(gFormat.format(270), "(Turning Mode ON)");
@@ -4168,7 +4187,6 @@ function onSectionEnd() {
     setPolarMode(false); // disable polar interpolation mode
   }
   
-
 
   if (currentSection.isMultiAxis()) {
     forceXYZ();
