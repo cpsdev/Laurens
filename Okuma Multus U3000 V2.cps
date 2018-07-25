@@ -3909,17 +3909,39 @@ function setCoolant_OLD(coolant) {
   currentCoolantMode = coolant;
 }
 */
-var tempSpeed = false;
+
 var lastSpindleSpeed = 0;
-function onSpindleSpeed(_spindleSpeed) {
-  tempSpindleSpeed = _spindleSpeed;
+function onSpindleSpeed(spindleSpeed) {
   var useConstantSurfaceSpeed = currentSection.getTool().getSpindleMode() == SPINDLE_CONSTANT_SURFACE_SPEED;
-  var _newSpeed = useConstantSurfaceSpeed ? tool.surfaceSpeed * ((unit == MM) ? 1 / 1000.0 : 1 / 12.0) : _spindleSpeed;
-  if (rpmFormat.areDifferent(_newSpeed, lastSpindleSpeed)) {
-    tempSpeed = true;
-    setSpindle(false, false);
+  var _newSpeed = useConstantSurfaceSpeed ? tool.surfaceSpeed * ((unit == MM) ? 1 / 1000.0 : 1 / 12.0) : spindleSpeed;
+  var constantSpeedCuttingTurret = gFormat.format((tool.turret == 2) ? 111 : 110);
+  var scode = getSpindle(false) == SPINDLE_LIVE ? sbOutput.format(spindleSpeed) : sOutput.format(spindleSpeed);
+  var gearCode;
+
+  if (spindleSpeed < 4000) {
+    gearCode = mFormat.format(241);
+  } else {
+    gearCode = mFormat.format(242);
   }
-  return;
+  if (getSpindle(false) != SPINDLE_LIVE) {
+    if (lowGear || properties.lowGear) {
+      gearCode = mFormat.format(41);
+    } else {
+      gearCode = mFormat.format(42);
+    }
+  }
+  if (rpmFormat.areDifferent(_newSpeed, lastSpindleSpeed)) {
+    if (getSpindle(false) == SPINDLE_LIVE) {
+      writeBlock(scode, gearCode);
+    } else {
+      if (gotMultiTurret) {
+        writeBlock(scode, constantSpeedCuttingTurret, gearCode);
+      } else {
+        writeBlock(scode, gearCode);
+      }
+    }
+  }
+  lastSpindleSpeed = spindleSpeed;
 }
 
 function setSpindle(tappingMode, forceRPMMode) {
@@ -3957,13 +3979,7 @@ function setSpindle(tappingMode, forceRPMMode) {
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_ON", getSpindle(false)));
     }
   } else {
-    if(tempSpeed == true){
-    _spindleSpeed = tempSpindleSpeed;
-    tempSpeed = false;
-    } else {
-      _spindleSpeed = spindleSpeed;
-    }
-
+    _spindleSpeed = spindleSpeed;
     spindleMode = getSpindle(false) == SPINDLE_LIVE ? "" : gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
   }
   constantSpeedCuttingTurret = gFormat.format((tool.turret == 2) ? 111 : 110);
