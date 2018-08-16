@@ -153,7 +153,7 @@ var zFormat = createFormat({decimals:(unit == MM ? 3 : 4), forceDecimal:true});
 var rFormat = createFormat({decimals:(unit == MM ? 3 : 4), forceDecimal:true}); // radius
 var abcFormat = createFormat({decimals:3, forceDecimal:true, scale:DEG});
 var bFormat = createFormat({prefix:"(B=", suffix:")", decimals:3, forceDecimal:true, scale:DEG});
-var cFormat = createFormat({decimals:3, forceDecimal:true, scale:DEG, cyclicLimit:toRad(359.9999)});
+var cFormat = createFormat({decimals:3, forceDecimal:true, scale:DEG, cyclicLimit:toRad(359.9999), trim: false});
 var feedFormat = createFormat({decimals:(unit == MM ? 2 : 3), forceDecimal:true});
 var pitchFormat = createFormat({decimals:6, forceDecimal:true});
 var toolFormat = createFormat({decimals:0, width:4, zeropad:true});
@@ -262,6 +262,7 @@ var HSSC = false;
 var machiningMode = 0;
 var lowGear = false;
 var korteRetract = false;
+var rapto = 0;
 
 var machineState = {
   liveToolIsActive: undefined,
@@ -602,10 +603,10 @@ function onOpen() {
 
   if (true) {
     var bAxisMain = createAxis({coordinate:1, table:false, axis:[0, -1, 0], range:[0, 210.001], preference:0});
-    var cAxisMain = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.999], preference:0}); // C axis is modal between primary and secondary spindle
+    var cAxisMain = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.9999], preference:0}); // C axis is modal between primary and secondary spindle
 
     var bAxisSub = createAxis({coordinate:1, table:false, axis:[0, -1, 0], range:[0, 210.001], preference:0});
-    var cAxisSub = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.999], preference:0}); // C axis is modal between primary and secondary spindle
+    var cAxisSub = createAxis({coordinate:2, table:true, axis:[0, 0, 1], cyclic:true, range:[0, 359.9999], preference:0}); // C axis is modal between primary and secondary spindle
 
     machineConfigurationMainSpindle = gotBAxis ? new MachineConfiguration(bAxisMain, cAxisMain) : new MachineConfiguration(cAxisMain);
     machineConfigurationSubSpindle =  gotBAxis ? new MachineConfiguration(bAxisSub, cAxisSub) : new MachineConfiguration(cAxisSub);
@@ -984,6 +985,7 @@ function initializeActiveFeeds() {
 }
 
 var currentWorkPlaneABC = undefined;
+var currentB = undefined;
 
 function forceWorkPlane() {
   currentWorkPlaneABC = undefined;
@@ -1009,8 +1011,11 @@ function setWorkPlane(abc) {
   if (!retracted) {
     if (currentSection.isPatterned() && korteRetract) {
     writeComment("No Retract due to user - Manual NC");
-    } else if (currentSection.isPatterned()) {
-      writeRetract(X);
+    } else if (currentSection.isPatterned()&& !abcFormat.areDifferent(currentB, abc.y)) {
+      writeBlock(gFormat.format(126) + " (" + "DISABLE TILTED WORKPLANE" + ")");
+     G127isActive = false;
+    forceWorkPlane();
+    writeRetract(X);
     } else {
       if (!stockTransferIsActive) {
         writeRetract();
@@ -1035,6 +1040,7 @@ function setWorkPlane(abc) {
   }
 
   currentWorkPlaneABC = abc;
+  currentB = abc.y;
 }
 
 function getBestABC(section, workPlane, which) {
@@ -1375,20 +1381,7 @@ function onSection() {
   if (!(stockTransferIsActive && partCutoff)) {
     stockTransferIsActive = false;
   }
-  if (gotMultiTurret) {
-  if (machineState.yAxisModeIsActive && machineState.currentTurret == 1 && tool.turret == 2){
-    if (!retracted) {
-      error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
-      return;
-    }
-    writeBlock(gMotionModal.format(0), yOutput.format(0));
-    onCommand(COMMAND_UNLOCK_MULTI_AXIS);
-    var code = gPolarModal.format(getCode("DISABLE_Y_AXIS", true));
-    var info = code ? "(Y AXIS MODE OFF)" : "";
-    writeBlock(code, info);
-    yOutput.disable();
-    }
-  }
+
 
 
   if (insertToolCall || newSpindle || newWorkOffset || newWorkPlane && !currentSection.isPatterned()) {
@@ -1396,6 +1389,21 @@ function onSection() {
     if (!stockTransferIsActive) {
 
       writeRetract();
+      if (gotMultiTurret) {
+        if (machineState.yAxisModeIsActive && machineState.currentTurret == 1 && tool.turret == 2){
+          if (!retracted) {
+            error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
+            return;
+          }
+          writeBlock(gMotionModal.format(0), yOutput.format(0));
+          onCommand(COMMAND_UNLOCK_MULTI_AXIS);
+          var code = gPolarModal.format(getCode("DISABLE_Y_AXIS", true));
+          var info = code ? "(Y AXIS MODE OFF)" : "";
+          writeBlock(code, info);
+          writeBlock(gPlaneModal.format(getCode("ENABLE_TURNING", getSpindle(true))));
+          yOutput.disable();
+          }
+        }
 
     }
     if (properties.optionalStop && !isFirstSection()) {
@@ -1927,6 +1935,7 @@ function onSection() {
     if (hasParameter("operation:tolerance")) {
       t = getParameter("operation:tolerance");
       var d = getParameter("operation:tolerance");
+      machiningMode = 0;
     } else {
       t = 0.01;
       machiningMode = 0;
@@ -1935,6 +1944,7 @@ function onSection() {
     if (hasParameter("operation:smoothingFilter") && getParameter("operation:smoothingFilter") == 1) {
       t = getParameter("operation:smoothingFilterTolerance");
       var d = getParameter("operation:smoothingFilterTolerance");
+      machiningMode = 0;
     }
     if (hasParameter("operation-strategy") && getParameter("operation-strategy") == "adaptive") {
       t = 0.1;
@@ -2366,7 +2376,7 @@ function onRapid(_x, _y, _z) {
   var z = zOutput.format(_z);
   if (x || y || z) {
     var useG1 = (((x ? 1 : 0) + (y ? 1 : 0) + (z ? 1 : 0)) > 1) || machineState.usePolarMode;
-    var highFeed = machineState.usePolarMode ? toPreciseUnit(1500, MM) : getHighfeedrate(_x);
+    var highFeed = machineState.usePolarMode ? toPreciseUnit(highFeedrate, MM) : getHighfeedrate(_x);
     if (pendingRadiusCompensation >= 0) {
       pendingRadiusCompensation = -1;
       if (useG1) {
@@ -3339,17 +3349,15 @@ function getCommonCycle(x, y, z, r) {
     zOutput.reset();
     cOutput.reset();
     return [xOutput.format(getModulus(x, y)), cOutput.format(currentC),
-      zOutput.format(z),
-      conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+      zOutput.format(z), (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r)];
   } else if (machineState.axialCenterDrilling) {
     return [xOutput.format(x), yOutput.format(y),
-    zOutput.format(z), conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+    zOutput.format(z), (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r)];
   } else {
 // TAG
     cOutput.reset();
     return [xOutput.format(x), yOutput.format(y),
-      zOutput.format(z), cOutput.format(currentWorkPlaneABC.z),
-     conditional(r != 0, (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r))];
+      zOutput.format(z), cOutput.format(currentWorkPlaneABC.z), (gPlaneModal.getCurrent() == 17 ? "K" : "I") + spatialFormat.format(r)];
   }
 }
 
@@ -3470,7 +3478,7 @@ function onCyclePoint(x, y, z) {
   }
   var lockCode = "";
 
-  var rapto = 0;
+
   // if (isFirstCyclePoint()|| writtenExpandedCycle) { // first cycle point
   if (isFirstCyclePoint()) { // first cycle point
     rapto = cycle.clearance - cycle.retract;
@@ -3666,7 +3674,7 @@ function onCycleEnd() {
     writeBlock(gCycleModal.format(180));
     gMotionModal.reset();
   }
-  skipThreading = true;
+  //skipThreading = true;
 }
 
 function onPassThrough(text) {
