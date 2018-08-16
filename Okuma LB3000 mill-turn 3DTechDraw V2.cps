@@ -2966,7 +2966,7 @@ function setSpindle(tappingMode, forceRPMMode) {
         initialPosition.x = 0;
       }
       var maximumSpindleSpeed = (tool.maximumSpindleSpeed > 0) ? Math.min(tool.maximumSpindleSpeed, properties.maximumSpindleSpeed) : properties.maximumSpindleSpeed;
-      _spindleSpeed = Math.min((spindleSpeed * ((unit == MM) ? 1000.0 : 12.0) / (Math.PI*initialPosition.x*2)), maximumSpindleSpeed);
+      _spindleSpeed = Math.min((_spindleSpeed * ((unit == MM) ? 1000.0 : 12.0) / (Math.PI*initialPosition.x*2)), maximumSpindleSpeed);
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(false)));
     } else {
       spindleMode = gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_ON", getSpindle(false)));

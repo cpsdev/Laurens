@@ -89,7 +89,8 @@ properties = {
   useSimpleThread: true, // outputs a G33 threading cycle, false outputs a G71 (standard) threading cycle
   CASOff: false, //Collision Avoidance system
   lowGear: false, //Use Low gear for turning operations.
-  safeRetractDistance: 0.0 // distance to add to retract distance when rewinding rotary axes
+  safeRetractDistance: 0.0, // distance to add to retract distance when rewinding rotary axes
+  preChangeTool: false //Change the next tool of UpperTurret when machining is done with the lowerTurret
 };
 
 // user-defined property definitions
@@ -122,7 +123,8 @@ propertyDefinitions = {
   gotSecondarySpindle: {title:"Secondary spindle", description:"Specifies that the machine has a secondary spindle.", group:0, type:"boolean"},
   useM960: {title:"Use C-axis Shortest Direction Code", description:"Specifies that an M960 should be used to control the C-axis direction instead of the M15/M16 directional codes.", type:"boolean"},
   useSimpleThread: {title:"Use simple threading cycle", description:"Enable to output G33 simple threading cycle, disable to output G71 standard threading cycle.", type:"boolean"},
-  safeRetractDistance: {title:"Safe retract distance", description:"Specifies the distance to add to retract distance when rewinding rotary axes.", type:"spatial"}
+  safeRetractDistance: {title:"Safe retract distance", description:"Specifies the distance to add to retract distance when rewinding rotary axes.", type:"spatial"},
+  preChangeTool: {title:"Change tool during machining", description:"Change the next tool of UpperTurret when machining is done with the lowerTurret", type:"boolean"}
 };
 
 // samples:
@@ -1434,7 +1436,7 @@ function onSection() {
       turret = 1; // upper turret as default
     }
 
-    if((machineState.currentTurret == 1 && tool.turret == 2)|| (isFirstSection() && tool.turret == 2)){
+    if(properties.preChangeTool && ((machineState.currentTurret == 1 && tool.turret == 2) || (isFirstSection() && tool.turret == 2))){
         if(isFirstSection()){
         writeBlock("N" + (2) + " P" + (2));
         } else {
