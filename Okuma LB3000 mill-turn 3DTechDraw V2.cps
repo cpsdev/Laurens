@@ -76,7 +76,8 @@ properties = {
   transferUseTorque: false, // use torque control for stock-transfer
   writeVersion: false, // include version info
   gotSecondarySpindle: false, // machine has a secondary spindle
-  useM960: false // use M960 C-axis shortest direction instead of M15/M16 directional codes
+  useM960: false, // use M960 C-axis shortest direction instead of M15/M16 directional codes
+  useSimpleThread: false // outputs a G33 threading cycle, false outputs a G71 (standard) threading cycle
 };
 
 // user-defined property definitions
@@ -2595,7 +2596,8 @@ function writeCycleClearance(plane, clearance) {
     }
   }
 }
-
+var skipThreading = false;
+var firstDepthOfCutX = 5;
 function onCyclePoint(x, y, z) {
 
   if (!properties.useCycles || currentSection.isMultiAxis()) {
@@ -2616,34 +2618,74 @@ function onCyclePoint(x, y, z) {
     expandCyclePoint(x, y, z);
     return;
   }
- /*
-  switch (cycleType) {
+ 
+   switch (cycleType) {
   case "thread-turning":
-    if (isLastCyclePoint()) {
-      var threadHeight = getParameter("operation:threadDepth");
-      var firstDepthOfCut = threadHeight / getParameter("operation:numberOfStepdowns");
-      var r = -cycle.incrementalX; // positive if taper goes down - delta radius
-      var cuttingAngle = 0;
-      if (hasParameter("operation:infeedAngle")) {
-        cuttingAngle = getParameter("operation:infeedAngle");
-      }
+    if (skipThreading) { // HSM outputs multiple cycles for multi-start threading
+      return;
+    }
+    var numberOfThreads = 1;
+    if ((hasParameter("operation:doMultipleThreads") && (getParameter("operation:doMultipleThreads") != 0))) {
+      numberOfThreads = getParameter("operation:numberOfThreads");
+    }
+    if (properties.useSimpleThread) {
+      gCycleModal.reset();
+      zOutput.reset();
       writeBlock(
-        gMotionModal.format(71),
-        xOutput.format(x),
+        gCycleModal.format(33),
+        xOutput.format(x-cycle.incrementalX),
         zOutput.format(z),
-        "A" + taperFormat.format(Math.atan2(cycle.incrementalX, cycle.incrementalZ * -1)), // taper angle
-        "B" + zFormat.format(cuttingAngle),
-        "D" + xFormat.format(firstDepthOfCut),
-        "H" + xFormat.format(threadHeight), // output as diameter
-        feedOutput.format(cycle.pitch),
-        "I" + xFormat.format(r),
-        mFormat.format(33),
-        mFormat.format(73)
+        iOutput.format(cycle.incrementalX, 0),
+        pitchOutput.format(cycle.pitch)
       );
+    } else {
+      if(isFirstCyclePoint()){
+      firstDepthOfCutX = x;
+      }
+      if (isLastCyclePoint()) {
+        var currentDepth = x;
+        var threadHeight = getParameter("operation:threadDepth");
+        var firstDepthOfCut = currentDepth+threadHeight-firstDepthOfCutX;
+        var cuttingAngle = 0;
+        var infeedMode = 0 ;
+        var infeedModeCode = 73;
+        var threadCuttingMode = 32;
+        if (hasParameter("operation:infeedAngle")) {
+          cuttingAngle = getParameter("operation:infeedAngle");
+        }
+        if (hasParameter("operation:infeedMode")) {
+          infeedMode = getParameter("operation:infeedMode");
+        }
+        if(infeedMode == "constant"){
+          threadCuttingMode = 32;
+          infeedModeCode = 73;
+        } else if(infeedMode == "alternate"){
+          threadCuttingMode = 33;
+          infeedModeCode = 75;  
+        }else {
+          threadCuttingMode = 32;
+          infeedModeCode = 75;   
+        }
+        writeBlock(
+          gMotionModal.format(71),
+          xOutput.format(x),
+          zOutput.format(z),
+          // "A" + taperFormat.format(Math.atan2(cycle.incrementalX, cycle.incrementalZ * -1)), // taper angle instead of I
+          conditional(cuttingAngle != 0, "B" + zFormat.format(cuttingAngle * 2)),
+          "D" + xFormat.format(firstDepthOfCut),
+          "H" + xFormat.format(threadHeight), // output as diameter
+          iOutput.format(cycle.incrementalX, 0),
+          conditional((numberOfThreads > 1), "Q" + numberOfThreads),
+          feedOutput.format(cycle.pitch),
+          mFormat.format(threadCuttingMode),
+          mFormat.format(infeedModeCode)
+        );
+        skipThreading = (numberOfThreads != 0);
+      }
     }
     return;
-  } */
-
+  }
+/*
   switch (cycleType) {
     case "thread-turning":
       // Most parameters from HSM are either not specified or
@@ -2661,7 +2703,7 @@ function onCyclePoint(x, y, z) {
       );
       forceFeed();
       return;
-    }
+    } */
 
   var lockCode = "";
 
@@ -2789,6 +2831,8 @@ function onCycleEnd() {
     writeBlock(gCycleModal.format(180));
     gMotionModal.reset();
   }
+
+  skipThreading = false;
 }
 
 function onPassThrough(text) {

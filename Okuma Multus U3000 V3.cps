@@ -3445,6 +3445,7 @@ function lockAxis() {
 }
 
 var skipThreading = false;
+var firstDepthOfCutX = 0;
 function onCyclePoint(x, y, z) {
   writeBlock(gPlaneModal.format(17)); // TAG check me
   if (!properties.useCycles || currentSection.isMultiAxis()) {
@@ -3467,7 +3468,7 @@ function onCyclePoint(x, y, z) {
     return;
   }
 */
-  switch (cycleType) {
+switch (cycleType) {
   case "thread-turning":
     if (skipThreading) { // HSM outputs multiple cycles for multi-start threading
       return;
@@ -3476,8 +3477,7 @@ function onCyclePoint(x, y, z) {
     if ((hasParameter("operation:doMultipleThreads") && (getParameter("operation:doMultipleThreads") != 0))) {
       numberOfThreads = getParameter("operation:numberOfThreads");
     }
-    if ((properties.useSimpleThread &&
-      !(hasParameter("operation:doMultipleThreads") && (getParameter("operation:doMultipleThreads") != 0)))) {
+    if (properties.useSimpleThread) {
       gCycleModal.reset();
       zOutput.reset();
       writeBlock(
@@ -3488,30 +3488,33 @@ function onCyclePoint(x, y, z) {
         pitchOutput.format(cycle.pitch)
       );
     } else {
+      if(isFirstCyclePoint()){
+      firstDepthOfCutX = x;
+      }
       if (isLastCyclePoint()) {
+        var currentDepth = x;
         var threadHeight = getParameter("operation:threadDepth");
-        var firstDepthOfCut = threadHeight / getParameter("operation:numberOfStepdowns");
+        var firstDepthOfCut = currentDepth+threadHeight-firstDepthOfCutX;
         var cuttingAngle = 0;
+        var infeedMode = 0 ;
+        var infeedModeCode = 73;
+        var threadCuttingMode = 32;
         if (hasParameter("operation:infeedAngle")) {
           cuttingAngle = getParameter("operation:infeedAngle");
         }
-
-        var threadInfeedMode = "constant";
         if (hasParameter("operation:infeedMode")) {
-          threadInfeedMode = getParameter("operation:infeedMode");
+          infeedMode = getParameter("operation:infeedMode");
         }
-        var selectedInfeed = new Array(33, 73);
-        if (threadInfeedMode == "reduced") {
-          selectedInfeed[0] = 32;
-          selectedInfeed[1] = 73;
-        } else if (threadInfeedMode == "constant") {
-          selectedInfeed[0] = 32;
-          selectedInfeed[1] = 75;
-        } else if (threadInfeedMode == "alternate") {
-          selectedInfeed[0] = 33;
-          selectedInfeed[1] = 73;
+        if(infeedMode == "constant"){
+          threadCuttingMode = 32;
+          infeedModeCode = 73;
+        } else if(infeedMode == "alternate"){
+          threadCuttingMode = 33;
+          infeedModeCode = 75;  
+        }else {
+          threadCuttingMode = 32;
+          infeedModeCode = 75;   
         }
-
         writeBlock(
           gMotionModal.format(71),
           xOutput.format(x),
@@ -3523,8 +3526,8 @@ function onCyclePoint(x, y, z) {
           iOutput.format(cycle.incrementalX, 0),
           conditional((numberOfThreads > 1), "Q" + numberOfThreads),
           feedOutput.format(cycle.pitch),
-          mFormat.format(selectedInfeed[0]),
-          mFormat.format(selectedInfeed[1])
+          mFormat.format(threadCuttingMode),
+          mFormat.format(infeedModeCode)
         );
         skipThreading = (numberOfThreads != 0);
       }
@@ -3730,7 +3733,7 @@ function onCycleEnd() {
     writeBlock(gCycleModal.format(180));
     gMotionModal.reset();
   }
-  //skipThreading = true;
+  skipThreading = false;
 }
 
 function onPassThrough(text) {
