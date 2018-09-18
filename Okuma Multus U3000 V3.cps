@@ -265,6 +265,7 @@ var machiningMode = 0;
 var lowGear = false;
 var korteRetract = false;
 var rapto = 0;
+var newMachineState = false;
 
 var machineState = {
   liveToolIsActive: undefined,
@@ -278,9 +279,14 @@ var machineState = {
   usePolarMode: undefined,
   useXZCMode: undefined,
   axialCenterDrilling: undefined,
+  previousSectionUsePolarMode: undefined,
+  previousSectionUseXZCMode: undefined,
+  previousSectionAxialCenterDrilling: undefined,
   currentBAxisOrientationTurning: new Vector(0, 0, 0),
   yAxisModeIsActive: undefined,
+  previousSectionYAxisModeIsActive: undefined,
   currentTurret: undefined
+
 };
 
 
@@ -1306,13 +1312,22 @@ function onSection() {
     (machineState.isTurningOperation &&
       abcFormat.areDifferent(bAxisOrientationTurning.x, machineState.currentBAxisOrientationTurning.x) ||
       abcFormat.areDifferent(bAxisOrientationTurning.y, machineState.currentBAxisOrientationTurning.y) ||
-      abcFormat.areDifferent(bAxisOrientationTurning.z, machineState.currentBAxisOrientationTurning.z));
+      abcFormat.areDifferent(bAxisOrientationTurning.z, machineState.currentBAxisOrientationTurning.z)) ;
 
   partCutoff = hasParameter("operation-strategy") &&
     (getParameter("operation-strategy") == "turningPart");
 
 
   updateMachiningMode(currentSection); // sets the needed machining mode to machineState (usePolarMode, useXZCMode, axialCenterDrilling)
+
+  if((!insertToolCall) && (machineState.previousSectionAxialCenterDrilling != machineState.axialCenterDrilling) ||
+    (machineState.previousSectionusePolarMode != machineState.usePolarMode) ||
+    (machineState.previousSectionUseXZCMode != machineState.useXZCMode) ||
+    (machineState.previousSectionYAxisModeIsActive != machineState.YAxisModeIsActive)){
+
+      newMachineState = true;
+      newWorkPlane = true;
+  }
 
   // Get the active spindle
   var newSpindle = true;
@@ -1342,8 +1357,14 @@ function onSection() {
         onCommand(COMMAND_STOP_SPINDLE);
         forceUnlockMultiAxis();
         if (tempSpindle != SPINDLE_LIVE) {
-          if(!currentSection.isPatterned()){      
-            writeRetract();
+          if(currentSection.isPatterned()){      
+            //writeRetract();
+            writeComment("No retract because of Pattern");
+          } else if (newMachineState){
+            writeComment("No retract - Same Initial Tool Axis with the same Tool different machine state");
+            newMachineState = false;
+          } else {
+          writeRetract();      
           }
           writeBlock(gPlaneModal.format(getCode("ENABLE_TURNING", getSpindle(true))));
         } else {
@@ -1686,6 +1707,8 @@ function onSection() {
     setRotation(remaining);
   }
 
+
+  
   if (insertToolCall) {
     if (!stockTransferIsActive) {
       writeRetract();
@@ -1918,7 +1941,7 @@ function onSection() {
       // deactivate Y-axis
       if (machineState.yAxisModeIsActive) {
         if (!retracted) {
-          error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
+          //error(localize("Cannot disable Y axis mode while the machine is not fully retracted."));
           return;
         }
         writeBlock(gMotionModal.format(0), yOutput.format(0));
@@ -1980,10 +2003,9 @@ function onSection() {
 
     // Turn spindle on
     setSpindle(false, true);
-    if (HSSC) {
-      writeBlock(mFormat.format(695));
-    }
   }
+
+
   // var maxFeed = currentSection.getMaximumFeedrate();
   var maxFeed = 20000;
 
@@ -2117,6 +2139,9 @@ function onSection() {
     setSpindle(false, false);
   }
 
+  if (HSSC) {
+    writeBlock(mFormat.format(695));
+  }
   if (machineState.usePolarMode) {
     setPolarMode(true); // enable polar interpolation mode
   }
@@ -2224,6 +2249,10 @@ function getMachiningDirection(section) {
 }
 
 function updateMachiningMode(section) {
+  machineState.previousSectionAxialCenterDrilling = machineState.axialCenterDrilling;
+  machineState.previousSectionusePolarMode = machineState.usePolarMode;
+  machineState.previousSectionUseXZCMode = machineState.useXZCMode;
+  machineState.previousSectionYAxisModeIsActive = machineState.YAxisModeIsActive;
   machineState.axialCenterDrilling = false; // reset
   machineState.usePolarMode = false; // reset
   machineState.useXZCMode = false; // reset
