@@ -1327,6 +1327,8 @@ function onSection() {
 
       newMachineState = true;
       newWorkPlane = true;
+  } else if(insertToolCall || newSpindle || newWorkOffset){
+    newMachineState = false;
   }
 
   // Get the active spindle
@@ -1364,7 +1366,7 @@ function onSection() {
             writeComment("No retract - Same Initial Tool Axis with the same Tool different machine state");
             newMachineState = false;
           } else {
-          writeRetract();      
+          writeRetract();   
           }
           writeBlock(gPlaneModal.format(getCode("ENABLE_TURNING", getSpindle(true))));
         } else {
@@ -1411,7 +1413,11 @@ function onSection() {
     // retract to safe plane
     if (!stockTransferIsActive) {
 
+      if (!newMachineState){
       writeRetract();
+      } else {
+        retracted = true;
+      }
       if (gotMultiTurret) {
         if (machineState.yAxisModeIsActive && machineState.currentTurret == 1 && tool.turret == 2){
           if (!retracted) {
